@@ -1,0 +1,72 @@
+services:
+  # API en mode production
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ccn_api_prod
+    restart: always
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./conventions.db:/app/conventions.db
+      - ./logs:/app/logs
+      - ./.env:/app/.env
+    environment:
+      - PYTHONUNBUFFERED=1
+      - TZ=Europe/Paris
+    command: uvicorn api.main:app --host 0.0.0.0 --port 8000 --workers 4
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8000/" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  # Extraction en mode production
+  extractor:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ccn_extractor_prod
+    restart: "no"
+    volumes:
+      - ./conventions.db:/app/conventions.db
+      - ./logs:/app/logs
+      - ./conventions_list.json:/app/conventions_list.json
+      - ./.env:/app/.env
+    environment:
+      - PYTHONUNBUFFERED=1
+      - TZ=Europe/Paris
+    profiles:
+      - extraction
+    command: python extract_all_to_db.py
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+
+  # Nginx reverse proxy (optionnel pour production)
+  nginx:
+    image: nginx:alpine
+    container_name: ccn_nginx
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - api
+    profiles:
+      - nginx

@@ -1,0 +1,45 @@
+services:
+  # API en mode développement
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ccn_api_dev
+    ports:
+      - "8000:8000"
+    volumes:
+      # Hot reload - monte le code source
+      - ./api:/app/api
+      - ./extraction:/app/extraction
+      - ./reformulation:/app/reformulation
+      - ./conventions.db:/app/conventions.db
+      - ./logs:/app/logs
+      - ./.env:/app/.env
+    environment:
+      - PYTHONUNBUFFERED=1
+      - DEBUG=1
+      - TZ=Europe/Paris
+    command: uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
+    stdin_open: true
+    tty: true
+
+  # Extraction en mode développement
+  extractor:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ccn_extractor_dev
+    volumes:
+      - ./extraction:/app/extraction
+      - ./api:/app/api
+      - ./conventions.db:/app/conventions.db
+      - ./logs:/app/logs
+      - ./conventions_list.json:/app/conventions_list.json
+      - ./.env:/app/.env
+    environment:
+      - PYTHONUNBUFFERED=1
+      - DEBUG=1
+      - TZ=Europe/Paris
+    profiles:
+      - extraction
+    command: python extract_all_to_db.py

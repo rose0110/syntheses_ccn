@@ -1,0 +1,134 @@
+services:
+  # PostgreSQL - Base de données
+  postgres:
+    image: postgres:15-alpine
+    container_name: ccn_postgres_dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ccn_dev
+      POSTGRES_USER: ccn_user
+      POSTGRES_PASSWORD: dev_password
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ccn_user -d ccn_dev" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ccn_dev_network
+
+  # API - FastAPI avec hot reload
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ccn_api_dev
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      # Hot reload - code monté en volume
+      - ./api:/app/api
+      - ./extraction:/app/extraction
+      - ./reformulation:/app/reformulation
+      - ./logs:/app/logs
+      - ./.env:/app/.env
+      - ./conventions_list.json:/app/conventions_list.json
+    environment:
+      - PYTHONUNBUFFERED=1
+      - DEBUG=1
+      - TZ=Europe/Paris
+      - DATABASE_URL=postgresql://ccn_user:dev_password@postgres:5432/ccn_dev
+    command: uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8000/" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - ccn_dev_network
+
+  # DB Init - Initialisation base de données (run once)
+  db-init:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ccn_db_init_dev
+    volumes:
+      - ./conventions_list.json:/app/conventions_list.json
+      - ./.env:/app/.env
+    environment:
+      - PYTHONUNBUFFERED=1
+      - TZ=Europe/Paris
+      - DATABASE_URL=postgresql://ccn_user:dev_password@postgres:5432/ccn_dev
+    command: python extract_all_to_db.py --populate-only
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles:
+      - init
+    networks:
+      - ccn_dev_network
+
+  # Extraction - Service d'extraction (on-demand)
+  extractor:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ccn_extractor_dev
+    restart: "no"
+    volumes:
+      - ./extraction:/app/extraction
+      - ./api:/app/api
+      - ./logs:/app/logs
+      - ./conventions_list.json:/app/conventions_list.json
+      - ./.env:/app/.env
+    environment:
+      - PYTHONUNBUFFERED=1
+      - DEBUG=1
+      - TZ=Europe/Paris
+      - DATABASE_URL=postgresql://ccn_user:dev_password@postgres:5432/ccn_dev
+    command: python extract_all_to_db.py
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles:
+      - extraction
+    networks:
+      - ccn_dev_network
+
+  # PgAdmin - Interface administration PostgreSQL (optionnel)
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: ccn_pgadmin_dev
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@ccn.local
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin_dev_data:/var/lib/pgadmin
+    depends_on:
+      - postgres
+    profiles:
+      - admin
+    networks:
+      - ccn_dev_network
+
+volumes:
+  postgres_dev_data:
+  pgadmin_dev_data:
+
+
+networks:
+  ccn_dev_network:
+    driver: bridge

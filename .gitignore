@@ -1,0 +1,92 @@
+# Environment
+.env
+
+# Data
+extractions/
+data/
+reformulations.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Screenshots debug
+# Node modules (si frontend)
+node_modules/
+
+# Database
+*.db
+*.db-journal
+*.backup
+backup_*.db
+*.bak
+
+# Logs
+logs/
+*.log
+
+# Environment
+.env
+.env.local
+
+# Docker
+.dockerignore
+
+# Extractions
+extractions/
+extractionse/
+data/
+
+# Screenshots debug
+debug_*.png
+screenshot_*.png
+
+# Data files
+data.json
+conventions_avec_pdf.*
+
+# Changes tracking
+changes_*.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# Redis
+dump.rdb
