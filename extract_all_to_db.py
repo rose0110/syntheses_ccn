@@ -135,7 +135,7 @@ def extract_and_compare(start_idx: int = 0, end_idx: int = None, check_changes: 
     
     changed_list = []
     
-    for conv_db in pending_conventions:
+    for conv_db in conventions_to_extract:
         logger.info(f"[{conv_db.id}] {conv_db.name}")
         
         conv_data = {
