@@ -27,6 +27,16 @@ class ConventionExtractor:
             logger.error(f"Invalid JSON in {file_path}: {e}")
             return []
     
+    def generate_pdf_url(self, convention_url: str) -> Optional[str]:
+        """Génère le lien PDF à partir du lien de la convention (logique script user)"""
+        import re
+        match = re.search(r'[?&]id=([A-Z0-9]+)', convention_url, re.IGNORECASE)
+        if match:
+            doc_id = match.group(1).upper()
+            doc_id_lower = doc_id.lower()
+            return f"https://www.elnet.fr/documentation/hulkStatic/EL/CD15/ETD/{doc_id}/sharp_/ANX/{doc_id_lower}.pdf"
+        return None
+
     def extract_convention(self, convention_id: int, convention_info: Dict) -> Optional[Dict]:
         url = convention_info.get("url")
         
@@ -42,12 +52,17 @@ class ConventionExtractor:
             logger.error(f"Failed to retrieve page for convention {convention_id}")
             return None
         
+        # Générer PDF URL dynamiquement si manquant
+        pdf_url = convention_info.get("pdf_url")
+        if not pdf_url and url:
+            pdf_url = self.generate_pdf_url(url)
+
         metadata = {
             "name": convention_info.get("name", ""),
             "idcc": convention_info.get("idcc"),
             "brochure": convention_info.get("brochure"),
             "url": url,
-            "pdf_url": convention_info.get("pdf_url"),
+            "pdf_url": pdf_url,
             "signature_date": convention_info.get("signature_date"),
             "extension_date": convention_info.get("extension_date"),
             "jo_date": convention_info.get("jo_date")

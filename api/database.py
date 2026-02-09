@@ -20,6 +20,7 @@ class Convention(Base):
     jo_date = Column(String, nullable=True)
     sections = Column(JSON)
     toc = Column(JSON, nullable=True)
+    raw_html = Column(Text, nullable=True)
     status = Column(String, default="pending")
     extracted_at = Column(DateTime, nullable=True)
     reformulated_at = Column(DateTime, nullable=True)

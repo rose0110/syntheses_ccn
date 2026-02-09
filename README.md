@@ -27,7 +27,7 @@ ulation AI (DeepSeek, optionnel)
 ### Configuration
 
 ```bash
-git clone <repo>
+git clone https://github.com/rose0110/syntheses_ccn.git
 cd syntheses_ccn
 cp .env.example .env
 nano .env  # Ajouter ELNET_USERNAME et ELNET_PASSWORD

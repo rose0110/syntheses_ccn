@@ -25,10 +25,19 @@ app.add_middleware(
 
 
 # Pydantic models
-class ConventionBase(BaseModel):
+class ConventionMetadata(BaseModel):
     name: str
-    idcc: Optional[str] = None
     url: str
+    pdf_url: Optional[str]
+    extraction_date: Optional[str] = None
+    idcc: Optional[str]
+    brochure: Optional[str]
+    signature_date: Optional[str]
+    extension_date: Optional[str]
+    jo_date: Optional[str]
+    revision_date: Optional[str] = ""
+    revision_extension: Optional[str] = ""
+    revision_jo: Optional[str] = ""
 
 class ConventionResponse(BaseModel):
     id: int
@@ -41,12 +50,14 @@ class ConventionResponse(BaseModel):
     class Config:
         from_attributes = True
 
-class ConventionDetail(ConventionResponse):
-    sections: Optional[dict]
-    toc: Optional[dict]
-    signature_date: Optional[str]
-    extension_date: Optional[str]
-    jo_date: Optional[str]
+class ConventionDetail(BaseModel):
+    metadata: ConventionMetadata
+    header_table_html: Optional[str] = ""
+    preamble_html: Optional[str] = ""
+    toc: List[dict] = []
+    sections: List[dict] = []
+    raw_html: Optional[str] = ""
+    status: str
 
 
 @app.on_event("startup")
@@ -89,13 +100,35 @@ async def list_conventions(
 
 @app.get("/api/conventions/{convention_id}", response_model=ConventionDetail)
 async def get_convention(convention_id: int, db: Session = Depends(get_db)):
-    """Récupère une convention par son ID"""
+    """Récupère une convention par son ID au format standard"""
     convention = db.query(Convention).filter(Convention.id == convention_id).first()
     
     if not convention:
         raise HTTPException(status_code=404, detail="Convention not found")
     
-    return convention
+    # Construire la réponse au format attendu
+    return {
+        "metadata": {
+            "name": convention.name,
+            "url": convention.url,
+            "pdf_url": convention.pdf_url,
+            "extraction_date": convention.extracted_at.isoformat() if convention.extracted_at else None,
+            "idcc": convention.idcc,
+            "brochure": convention.brochure,
+            "signature_date": convention.signature_date,
+            "extension_date": convention.extension_date,
+            "jo_date": convention.jo_date,
+            "revision_date": "",        # TODO: Ajouter au modèle DB si nécessaire
+            "revision_extension": "",   # TODO: Ajouter au modèle DB si nécessaire 
+            "revision_jo": ""           # TODO: Ajouter au modèle DB si nécessaire
+        },
+        "header_table_html": "",  # Non stocké en DB pour l'instant
+        "preamble_html": "",      # Extrait des sections si nécessaire
+        "toc": convention.toc or [],
+        "sections": convention.sections or [],
+        "raw_html": convention.raw_html or "",           # Maintenu en DB désormais
+        "status": convention.status
+    }
 
 
 @app.get("/api/stats")
@@ -131,31 +164,8 @@ async def search_conventions(
 
 @app.get("/api/conventions/{convention_id}/integrale")
 async def get_integrale(convention_id: int, db: Session = Depends(get_db)):
-    """Récupère l'intégrale HTML complète d'une convention"""
-    convention = db.query(Convention).filter(Convention.id == convention_id).first()
-    
-    if not convention:
-        raise HTTPException(status_code=404, detail="Convention not found")
-    
-    if not convention.sections:
-        raise HTTPException(status_code=404, detail="Convention not yet extracted")
-    
-    return {
-        "id": convention.id,
-        "name": convention.name,
-        "idcc": convention.idcc,
-        "url": convention.url,
-        "metadata": {
-            "signature_date": convention.signature_date,
-            "extension_date": convention.extension_date,
-            "jo_date": convention.jo_date,
-            "brochure": convention.brochure,
-            "pdf_url": convention.pdf_url
-        },
-        "toc": convention.toc,
-        "sections": convention.sections,
-        "extracted_at": convention.extracted_at
-    }
+    """Récupère l'intégrale complète (alias pour get_convention avec le nouveau format)"""
+    return await get_convention(convention_id, db)
 
 
 @app.get("/api/conventions/{convention_id}/sections")

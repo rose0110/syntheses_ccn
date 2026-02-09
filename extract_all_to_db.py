@@ -191,6 +191,21 @@ def extract_and_compare(start_idx: int = 0, end_idx: int = None, check_changes: 
                 
                 conv.sections = result.get('sections', [])
                 conv.toc = result.get('toc', [])
+                conv.raw_html = result.get('raw_html', '')
+                
+                # Update metadata from extraction result
+                metadata = result.get('metadata', {})
+                if metadata.get('idcc'):
+                    conv.idcc = metadata.get('idcc')
+                if metadata.get('brochure'):
+                    conv.brochure = metadata.get('brochure')
+                if metadata.get('signature_date'):
+                    conv.signature_date = metadata.get('signature_date')
+                if metadata.get('extension_date'):
+                    conv.extension_date = metadata.get('extension_date')
+                if metadata.get('jo_date'):
+                    conv.jo_date = metadata.get('jo_date')
+                
                 conv.status = "extracted"
                 conv.extracted_at = datetime.utcnow()
                 conv.version_hash = new_hash
