@@ -106,23 +106,23 @@ def extract_and_compare(start_idx: int = 0, end_idx: int = None, check_changes: 
         logger.info("Database empty, populating...")
         populate_database(conventions_list)
     
-    # Get conventions to extract
+    # Get conventions to extract (all, not just pending - permet ré-extraction)
     db = SessionLocal()
-    query = db.query(Convention).filter(Convention.status == "pending")
+    query = db.query(Convention)
     
     if end_idx:
         query = query.filter(Convention.id >= start_idx, Convention.id < end_idx)
     else:
         query = query.filter(Convention.id >= start_idx)
     
-    pending_conventions = query.all()
+    conventions_to_extract = query.all()
     db.close()
     
-    if not pending_conventions:
-        logger.info("No pending conventions")
+    if not conventions_to_extract:
+        logger.info("No conventions to extract")
         return []
     
-    logger.info(f"Extracting {len(pending_conventions)} conventions")
+    logger.info(f"Extracting {len(conventions_to_extract)} conventions")
     
     # Extract
     extractor = ConventionExtractor(username, password, headless=True)
