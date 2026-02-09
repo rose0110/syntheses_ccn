@@ -1,0 +1,73 @@
+services:
+  # API Production (clone depuis GitHub)
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.vps
+    container_name: ccn_api_vps
+    restart: always
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=sqlite:///./conventions.db
+    volumes:
+      - ./conventions.db:/app/conventions.db
+      - ./logs:/app/logs
+      - ./.env:/app/.env
+    command: uvicorn api.main:app --host 0.0.0.0 --port 8000
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8000/" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Service d'initialisation DB
+  db-init:
+    build:
+      context: .
+      dockerfile: Dockerfile.vps
+    container_name: ccn_db_init
+    env_file:
+      - .env
+    volumes:
+      - ./conventions.db:/app/conventions.db
+      - ./conventions_list.json:/app/conventions_list.json
+    command: python extract_all_to_db.py --populate-only
+    profiles:
+      - init
+
+  # Service d'extraction
+  extractor:
+    build:
+      context: .
+      dockerfile: Dockerfile.vps
+    container_name: ccn_extractor
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=sqlite:///./conventions.db
+    volumes:
+      - ./conventions.db:/app/conventions.db
+      - ./logs:/app/logs
+      - ./.env:/app/.env
+    command: python extract_all_to_db.py
+    profiles:
+      - extraction
+
+  # Nginx (optionnel)
+  nginx:
+    image: nginx:alpine
+    container_name: ccn_nginx
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - api
+    profiles:
+      - nginx
