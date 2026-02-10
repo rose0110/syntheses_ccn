@@ -393,7 +393,7 @@
 
                 // Charger le contenu dans l'éditeur
                 const htmlContent = data.raw_html || '<p>Aucun contenu HTML disponible</p>';
-                quill.root.innerHTML = htmlContent;
+                quill.clipboard.dangerouslyPasteHTML(htmlContent);
                 document.getElementById('saveBtn').disabled = false;
 
                 showAlert('Convention chargée avec succès', 'success');
