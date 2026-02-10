@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Depends, HTTPException, Query, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from pydantic import BaseModel
@@ -23,6 +24,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Static files
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
 
 
 # Pydantic models
@@ -150,45 +155,21 @@ async def get_stats(db: Session = Depends(get_db)):
     }
 
 
-@app.get("/api/conventions/idcc/{idcc}", response_model=ConventionDetail)
+@app.get("/api/conventions/idcc/{idcc}", response_model=List[ConventionResponse])
 async def get_convention_by_idcc(idcc: str, db: Session = Depends(get_db)):
-    """Récupère une convention par son IDCC exact"""
-    # Nettoyage IDCC (ex: 0044 -> 44, ou inversement ?)
-    # On cherche exact ou like
-    convention = db.query(Convention).filter(Convention.idcc == idcc).first()
+    """Récupère toutes les conventions ayant cet IDCC (peuvent être multiples)"""
+    conventions = db.query(Convention).filter(Convention.idcc == idcc).all()
     
-    if not convention:
+    if not conventions:
         # Essai avec padding zéros si < 4 chars
         if len(idcc) < 4:
             padded_idcc = idcc.zfill(4)
-            convention = db.query(Convention).filter(Convention.idcc == padded_idcc).first()
+            conventions = db.query(Convention).filter(Convention.idcc == padded_idcc).all()
             
-    if not convention:
-        raise HTTPException(status_code=404, detail="Convention not found with this IDCC")
+    if not conventions:
+        raise HTTPException(status_code=404, detail="No conventions found with this IDCC")
     
-    # Réutilisation de la logique de construction de réponse
-    return {
-        "metadata": {
-            "name": convention.name,
-            "url": convention.url,
-            "pdf_url": convention.pdf_url,
-            "extraction_date": convention.extracted_at.isoformat() if convention.extracted_at else None,
-            "idcc": convention.idcc,
-            "brochure": convention.brochure,
-            "signature_date": convention.signature_date,
-            "extension_date": convention.extension_date,
-            "jo_date": convention.jo_date,
-            "revision_date": "",
-            "revision_extension": "",
-            "revision_jo": ""
-        },
-        "header_table_html": "",
-        "preamble_html": "",
-        "toc": convention.toc or [],
-        "sections": convention.sections or [],
-        "raw_html": convention.raw_html or "",
-        "status": convention.status
-    }
+    return conventions
 
 
 @app.get("/api/search", response_model=List[ConventionResponse])
@@ -255,6 +236,35 @@ async def get_toc(convention_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Convention not found")
     
     return convention.toc or []
+
+
+class RawHtmlUpdate(BaseModel):
+    raw_html: str
+
+
+@app.patch("/api/conventions/{convention_id}/raw_html")
+async def update_raw_html(
+    convention_id: int,
+    update_data: RawHtmlUpdate,
+    db: Session = Depends(get_db)
+):
+    """Met à jour le contenu HTML brut d'une convention"""
+    convention = db.query(Convention).filter(Convention.id == convention_id).first()
+    
+    if not convention:
+        raise HTTPException(status_code=404, detail="Convention not found")
+    
+    convention.raw_html = update_data.raw_html
+    convention.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(convention)
+    
+    return {
+        "message": "raw_html updated successfully",
+        "convention_id": convention_id,
+        "updated_at": convention.updated_at
+    }
+
 
 
 @app.get("/api/integrales", response_model=List[ConventionResponse])

@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Éditeur de Conventions</title>
+    <script src="https://cdn.tiny.cloud/1/no-api-key/tinymce/6/tinymce.min.js" referrerpolicy="origin"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            font-size: 32px;
+            margin-bottom: 10px;
+        }
+        
+        .content {
+            display: grid;
+            grid-template-columns: 350px 1fr;
+            gap: 0;
+            min-height: calc(100vh - 180px);
+        }
+        
+        .sidebar {
+            background: #f8f9fa;
+            padding: 20px;
+            border-right: 1px solid #dee2e6;
+        }
+        
+        .search-box {
+            margin-bottom: 20px;
+        }
+        
+        .search-box input {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid #dee2e6;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+        
+        .search-box input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        
+        .btn {
+            width: 100%;
+            padding: 12px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: 10px;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+        
+        .btn:active {
+            transform: translateY(0);
+        }
+        
+        .btn-save {
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            margin-top: 20px;
+        }
+        
+        .btn-save:hover {
+            box-shadow: 0 4px 12px rgba(56, 239, 125, 0.4);
+        }
+        
+        .btn-save:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .conventions-list {
+            margin-top: 20px;
+            max-height: 500px;
+            overflow-y: auto;
+        }
+        
+        .convention-item {
+            padding: 12px;
+            margin-bottom: 8px;
+            background: white;
+            border: 2px solid #dee2e6;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .convention-item:hover {
+            border-color: #667eea;
+            background: #f8f9ff;
+        }
+        
+        .convention-item.active {
+            border-color: #667eea;
+            background: #667eea;
+            color: white;
+        }
+        
+        .convention-item .name {
+            font-weight: 600;
+            font-size: 13px;
+            margin-bottom: 4px;
+        }
+        
+        .convention-item .meta {
+            font-size: 11px;
+            opacity: 0.7;
+        }
+        
+        .editor-container {
+            padding: 30px;
+        }
+        
+        .editor-header {
+            margin-bottom: 20px;
+        }
+        
+        .editor-header h2 {
+            color: #2d3748;
+            font-size: 24px;
+            margin-bottom: 8px;
+        }
+        
+        .editor-header .info {
+            color: #718096;
+            font-size: 14px;
+        }
+        
+        .alert {
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+        
+        .alert-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        
+        .alert-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        
+        .alert-info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #718096;
+        }
+        
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 16px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📝 Éditeur de Conventions Collectives</h1>
+            <p>Recherchez, visualisez et modifiez le contenu HTML des conventions</p>
+        </div>
+        
+        <div class="content">
+            <div class="sidebar">
+                <div class="search-box">
+                    <input 
+                        type="text" 
+                        id="searchInput" 
+                        placeholder="🔍 Rechercher par titre ou IDCC..."
+                        autocomplete="off"
+                    >
+                    <button class="btn" onclick="searchConventions()">Rechercher</button>
+                </div>
+                
+                <div id="conventionsList" class="conventions-list">
+                    <div class="alert-info">
+                        👆 Saisissez un titre ou un code IDCC pour commencer
+                    </div>
+                </div>
+            </div>
+            
+            <div class="editor-container">
+                <div id="alerts"></div>
+                
+                <div class="editor-header">
+                    <h2 id="editorTitle">Aucune convention sélectionnée</h2>
+                    <div class="info" id="editorInfo">Recherchez et sélectionnez une convention pour commencer l'édition</div>
+                </div>
+                
+                <textarea id="editor"></textarea>
+                
+                <button class="btn btn-save" id="saveBtn" onclick="saveChanges()" disabled>
+                    💾 Enregistrer les modifications
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentConventionId = null;
+        let editor = null;
+        const API_BASE = window.location.origin;
+
+        // Initialiser TinyMCE
+        tinymce.init({
+            selector: '#editor',
+            height: 600,
+            menubar: false,
+            plugins: [
+                'advlist', 'autolink', 'lists', 'link', 'image', 'charmap', 'preview',
+                'anchor', 'searchreplace', 'visualblocks', 'code', 'fullscreen',
+                'insertdatetime', 'media', 'table', 'help', 'wordcount'
+            ],
+            toolbar: 'undo redo | formatselect | bold italic backcolor | \
+                     alignleft aligncenter alignright alignjustify | \
+                     bullist numlist outdent indent | removeformat | code | help',
+            content_style: 'body { font-family:Helvetica,Arial,sans-serif; font-size:14px; padding: 20px; }',
+            setup: function(ed) {
+                editor = ed;
+                ed.on('init', function() {
+                    console.log('TinyMCE initialized');
+                });
+            }
+        });
+
+        // Recherche avec Enter
+        document.getElementById('searchInput').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                searchConventions();
+            }
+        });
+
+        async function searchConventions() {
+            const query = document.getElementById('searchInput').value.trim();
+            const listEl = document.getElementById('conventionsList');
+            
+            if (!query || query.length < 2) {
+                showAlert('Veuillez saisir au moins 2 caractères', 'error');
+                return;
+            }
+            
+            listEl.innerHTML = '<div class="loading"><div class="spinner"></div>Recherche en cours...</div>';
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/search?q=${encodeURIComponent(query)}`);
+                
+                if (!response.ok) throw new Error('Erreur de recherche');
+                
+                const conventions = await response.json();
+                
+                if (conventions.length === 0) {
+                    listEl.innerHTML = '<div class="alert-info">Aucune convention trouvée</div>';
+                    return;
+                }
+                
+                listEl.innerHTML = conventions.map(conv => `
+                    <div class="convention-item" onclick="loadConvention(${conv.id})">
+                        <div class="name">ID ${conv.id} - ${conv.name}</div>
+                        <div class="meta">IDCC: ${conv.idcc || 'N/A'} | Statut: ${conv.status}</div>
+                    </div>
+                `).join('');
+                
+            } catch (error) {
+                console.error(error);
+                showAlert('Erreur lors de la recherche: ' + error.message, 'error');
+                listEl.innerHTML = '<div class="alert-error">Erreur de recherche</div>';
+            }
+        }
+
+        async function loadConvention(id) {
+            currentConventionId = id;
+            document.getElementById('saveBtn').disabled = true;
+            
+            // Highlight selected
+            document.querySelectorAll('.convention-item').forEach(item => {
+                item.classList.remove('active');
+            });
+            event.target.closest('.convention-item').classList.add('active');
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/conventions/${id}`);
+                
+                if (!response.ok) throw new Error('Convention non trouvée');
+                
+                const data = await response.json();
+                
+                // Mettre à jour l'en-tête
+                document.getElementById('editorTitle').textContent = data.metadata.name;
+                document.getElementById('editorInfo').textContent = `ID: ${id} | IDCC: ${data.metadata.idcc || 'N/A'} | Statut: ${data.status}`;
+                
+                // Charger le contenu dans l'éditeur
+                if (editor) {
+                    editor.setContent(data.raw_html || '<p>Aucun contenu HTML disponible</p>');
+                    document.getElementById('saveBtn').disabled = false;
+                }
+                
+                showAlert('Convention chargée avec succès', 'success');
+                
+            } catch (error) {
+                console.error(error);
+                showAlert('Erreur lors du chargement: ' + error.message, 'error');
+            }
+        }
+
+        async function saveChanges() {
+            if (!currentConventionId) {
+                showAlert('Aucune convention sélectionnée', 'error');
+                return;
+            }
+            
+            if (!editor) {
+                showAlert('Éditeur non initialisé', 'error');
+                return;
+            }
+            
+            const saveBtn = document.getElementById('saveBtn');
+            saveBtn.disabled = true;
+            saveBtn.textContent = '⏳ Enregistrement...';
+            
+            try {
+                const htmlContent = editor.getContent();
+                
+                const response = await fetch(`${API_BASE}/api/conventions/${currentConventionId}/raw_html`, {
+                    method: 'PATCH',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        raw_html: htmlContent
+                    })
+                });
+                
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.detail || 'Erreur de sauvegarde');
+                }
+                
+                const result = await response.json();
+                showAlert(`✅ Modifications enregistrées avec succès (${new Date(result.updated_at).toLocaleString()})`, 'success');
+                
+            } catch (error) {
+                console.error(error);
+                showAlert('❌ Erreur lors de la sauvegarde: ' + error.message, 'error');
+            } finally {
+                saveBtn.disabled = false;
+                saveBtn.textContent = '💾 Enregistrer les modifications';
+            }
+        }
+
+        function showAlert(message, type = 'info') {
+            const alertsEl = document.getElementById('alerts');
+            const alertClass = `alert-${type}`;
+            
+            const alertDiv = document.createElement('div');
+            alertDiv.className = `alert ${alertClass}`;
+            alertDiv.textContent = message;
+            
+            alertsEl.innerHTML = '';
+            alertsEl.appendChild(alertDiv);
+            
+            setTimeout(() => {
+                alertDiv.remove();
+            }, 5000);
+        }
+    </script>
+</body>
+</html>
