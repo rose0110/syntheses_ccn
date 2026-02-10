@@ -149,15 +149,65 @@ async def get_stats(db: Session = Depends(get_db)):
     }
 
 
-@app.get("/api/search")
+@app.get("/api/conventions/idcc/{idcc}", response_model=ConventionDetail)
+async def get_convention_by_idcc(idcc: str, db: Session = Depends(get_db)):
+    """Récupère une convention par son IDCC exact"""
+    # Nettoyage IDCC (ex: 0044 -> 44, ou inversement ?)
+    # On cherche exact ou like
+    convention = db.query(Convention).filter(Convention.idcc == idcc).first()
+    
+    if not convention:
+        # Essai avec padding zéros si < 4 chars
+        if len(idcc) < 4:
+            padded_idcc = idcc.zfill(4)
+            convention = db.query(Convention).filter(Convention.idcc == padded_idcc).first()
+            
+    if not convention:
+        raise HTTPException(status_code=404, detail="Convention not found with this IDCC")
+    
+    # Réutilisation de la logique de construction de réponse
+    return {
+        "metadata": {
+            "name": convention.name,
+            "url": convention.url,
+            "pdf_url": convention.pdf_url,
+            "extraction_date": convention.extracted_at.isoformat() if convention.extracted_at else None,
+            "idcc": convention.idcc,
+            "brochure": convention.brochure,
+            "signature_date": convention.signature_date,
+            "extension_date": convention.extension_date,
+            "jo_date": convention.jo_date,
+            "revision_date": "",
+            "revision_extension": "",
+            "revision_jo": ""
+        },
+        "header_table_html": "",
+        "preamble_html": "",
+        "toc": convention.toc or [],
+        "sections": convention.sections or [],
+        "raw_html": convention.raw_html or "",
+        "status": convention.status
+    }
+
+
+@app.get("/api/search", response_model=List[ConventionResponse])
 async def search_conventions(
-    q: str = Query(..., min_length=2),
+    q: str = Query(..., min_length=2, description="Mot ou partie de mot à chercher dans le titre ou l'IDCC"),
+    limit: int = 50,
     db: Session = Depends(get_db)
 ):
-    """Recherche de conventions par nom ou IDCC"""
+    """
+    Recherche de conventions par nom (titre) ou IDCC.
+    - Insensible à la casse
+    - Cherche une partie du mot
+    """
+    # Utilisation de ilike pour case-insensitive search (compatible Postgres/SQLite)
+    # Note: Sur SQLite pur, LIKE est case-insensitive pour ASCII uniquement.
+    search_term = f"%{q}%"
+    
     conventions = db.query(Convention).filter(
-        (Convention.name.contains(q)) | (Convention.idcc.contains(q))
-    ).limit(50).all()
+        (Convention.name.ilike(search_term)) | (Convention.idcc.ilike(search_term))
+    ).limit(limit).all()
     
     return conventions
 

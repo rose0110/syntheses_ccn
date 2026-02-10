@@ -63,30 +63,32 @@ Documentation: http://localhost:8000/docs
 
 ### Endpoints
 
-**Conventions**
-```
-GET  /api/conventions
-GET  /api/conventions/{id}
-GET  /api/conventions/{id}/integrale
-GET  /api/integrales
-GET  /api/stats
-```
+**Conventions & Recherche**
+| Méthode | Route | Description |
+|:---|:---|:---|
+| `GET` | `/api/conventions` | Liste toutes les conventions (filtres: `skip`, `limit`, `status`, `idcc`) |
+| `GET` | `/api/conventions/{id}` | Détails d'une convention (métadonnées, sections, TOC) |
+| `GET` | `/api/conventions/idcc/{idcc}` | Retrouver une convention par son code IDCC (ex: "0044") |
+| `GET` | `/api/conventions/{id}/integrale` | Alias vers les détails complets |
+| `GET` | `/api/conventions/{id}/sections` | Liste des sections HTML uniquement |
+| `GET` | `/api/conventions/{id}/toc` | Table des matières (JSON) |
+| `GET` | `/api/search?q=...` | Recherche (insensible à la casse) dans titre ou IDCC |
+| `GET` | `/api/stats` | Statistiques globales (total, extraites, erreurs...) |
 
-**Extraction**
-```
-POST /api/extract/start?end=10
-POST /api/extract/start?start=50&end=100
-GET  /api/extract/status
-POST /api/extract/stop
-```
+**Extraction (Pilotage)**
+| Méthode | Route | Description |
+|:---|:---|:---|
+| `POST` | `/api/extract/start` | Lancer une extraction (params: `start`, `end`) |
+| `GET` | `/api/extract/status` | Suivi temps réel (progression, logs) |
+| `POST` | `/api/extract/stop` | Arrêter l'extraction en cours |
 
-**Changements**
-```
-GET  /api/changes
-GET  /api/changes/unprocessed
-GET  /api/changes/stats
-POST /api/changes/{id}/mark-processed
-```
+**Suivi des Changements (Diff)**
+| Méthode | Route | Description |
+|:---|:---|:---|
+| `GET` | `/api/changes` | Historique des changements détectés |
+| `GET` | `/api/changes/unprocessed` | Changements en attente de traitement |
+| `GET` | `/api/changes/stats` | Stats des changements |
+| `POST` | `/api/changes/{id}/mark-processed` | Marquer un changement comme traité |
 
 ## Utilisation
 
