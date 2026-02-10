@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Depends, HTTPException, Query, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from pydantic import BaseModel
@@ -212,10 +213,23 @@ async def search_conventions(
     return conventions
 
 
-@app.get("/api/conventions/{convention_id}/integrale")
+@app.get("/api/conventions/{convention_id}/integrale", response_class=HTMLResponse)
 async def get_integrale(convention_id: int, db: Session = Depends(get_db)):
-    """Récupère l'intégrale complète (alias pour get_convention avec le nouveau format)"""
-    return await get_convention(convention_id, db)
+    """Récupère le contenu HTML brut de l'intégrale"""
+    try:
+        convention = db.query(Convention).filter(Convention.id == convention_id).first()
+        
+        if not convention:
+            return HTMLResponse(content="<h1>Convention introuvable</h1>", status_code=404)
+        
+        html_content = convention.raw_html or ""
+        if not html_content:
+             return HTMLResponse(content="<h1>Contenu HTML vide pour cette convention</h1>", status_code=200)
+
+        return HTMLResponse(content=html_content, status_code=200)
+    except Exception as e:
+        print(f"Error serving integrale: {e}")
+        return HTMLResponse(content=f"<h1>Erreur interne</h1><p>{str(e)}</p>", status_code=500)
 
 
 @app.get("/api/conventions/{convention_id}/sections")
