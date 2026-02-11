@@ -18,6 +18,49 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 
+def clean_html(html_content: str) -> str:
+    """Nettoie le HTML en retirant scripts, styles et attributs inutiles"""
+    if not html_content:
+        return html_content
+    
+    try:
+        from bs4 import BeautifulSoup
+        
+        soup = BeautifulSoup(html_content, 'html.parser')
+        
+        # Retirer toutes les balises script
+        for script in soup.find_all('script'):
+            script.decompose()
+        
+        # Retirer toutes les balises style
+        for style in soup.find_all('style'):
+            style.decompose()
+        
+        # Retirer tous les commentaires HTML
+        for comment in soup.find_all(string=lambda text: isinstance(text, type(soup))):
+            comment.extract()
+        
+        # Attributs à supprimer (événements JS et attributs inutiles)
+        unwanted_attrs = [
+            'onclick', 'onload', 'onmouseover', 'onmouseout', 
+            'onfocus', 'onblur', 'onchange', 'onsubmit',
+            'class', 'id', 'style'  # Optionnel : supprimer aussi les classes/IDs
+        ]
+        
+        # Parcourir tous les éléments et retirer les attributs indésirables
+        for tag in soup.find_all(True):
+            for attr in unwanted_attrs:
+                if attr in tag.attrs:
+                    del tag.attrs[attr]
+        
+        return str(soup)
+    
+    except Exception as e:
+        logger.warning(f"Erreur lors du nettoyage HTML: {e}")
+        return html_content  # Retourner l'original en cas d'erreur
+
+
+
 def compute_hash(sections):
     """Calcule un hash du contenu des sections"""
     content = json.dumps(sections, sort_keys=True)
@@ -191,7 +234,11 @@ def extract_and_compare(start_idx: int = 0, end_idx: int = None, check_changes: 
                 
                 conv.sections = result.get('sections', [])
                 conv.toc = result.get('toc', [])
-                conv.raw_html = result.get('raw_html', '')
+                
+                # Nettoyer le HTML avant stockage
+                raw_html = result.get('raw_html', '')
+                conv.raw_html = clean_html(raw_html) if raw_html else ''
+
                 
                 # Update metadata from extraction result
                 metadata = result.get('metadata', {})

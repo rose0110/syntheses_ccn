@@ -25,8 +25,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Static files
-app.mount("/static", StaticFiles(directory="static"), name="static")
+# Static files (optionnel)
+import os
+if os.path.exists("static"):
+    app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
 
@@ -264,6 +266,65 @@ async def update_raw_html(
         "convention_id": convention_id,
         "updated_at": convention.updated_at
     }
+
+
+@app.post("/api/conventions/{convention_id}/clean")
+async def clean_convention_html(
+    convention_id: int,
+    db: Session = Depends(get_db)
+):
+    """Nettoie le HTML d'une convention (retire scripts, styles, attributs JS)"""
+    from bs4 import BeautifulSoup
+    
+    convention = db.query(Convention).filter(Convention.id == convention_id).first()
+    
+    if not convention:
+        raise HTTPException(status_code=404, detail="Convention not found")
+    
+    if not convention.raw_html:
+        raise HTTPException(status_code=400, detail="Convention has no raw_html content")
+    
+    try:
+        soup = BeautifulSoup(convention.raw_html, 'html.parser')
+        
+        # Retirer scripts
+        for script in soup.find_all('script'):
+            script.decompose()
+        
+        # Retirer styles
+        for style in soup.find_all('style'):
+            style.decompose()
+        
+        # Retirer attributs indésirables
+        unwanted_attrs = [
+            'onclick', 'onload', 'onmouseover', 'onmouseout',
+            'onfocus', 'onblur', 'onchange', 'onsubmit',
+            'class', 'id', 'style'
+        ]
+        
+        for tag in soup.find_all(True):
+            for attr in unwanted_attrs:
+                if attr in tag.attrs:
+                    del tag.attrs[attr]
+        
+        # Sauvegarder
+        cleaned_html = str(soup)
+        convention.raw_html = cleaned_html
+        convention.updated_at = datetime.utcnow()
+        db.commit()
+        db.refresh(convention)
+        
+        return {
+            "message": "HTML cleaned successfully",
+            "convention_id": convention_id,
+            "original_size": len(convention.raw_html or ''),
+            "cleaned_size": len(cleaned_html),
+            "updated_at": convention.updated_at
+        }
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error cleaning HTML: {str(e)}")
+
 
 
 
