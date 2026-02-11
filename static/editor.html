@@ -372,7 +372,9 @@
         }
 
         async function loadConvention(id) {
+            console.log("loadConvention called with id:", id);
             currentConventionId = id;
+            console.log("currentConventionId set to:", currentConventionId);
             document.getElementById('saveBtn').disabled = true;
 
             // Highlight selected (utiliser data-id au lieu de event)
@@ -381,16 +383,19 @@
             });
 
             const selectedItem = document.querySelector(`.convention-item[data-id="${id}"]`);
+            console.log("selectedItem found:", selectedItem);
             if (selectedItem) {
                 selectedItem.classList.add('active');
             }
 
             try {
                 const response = await fetch(`${API_BASE}/api/conventions/${id}`);
+                console.log("API response status:", response.status);
 
                 if (!response.ok) throw new Error('Convention non trouvée');
 
                 const data = await response.json();
+                console.log("Data loaded successfully for convention:", data.metadata.name);
 
                 // Mettre à jour l'en-tête
                 document.getElementById('editorTitle').textContent = data.metadata.name;
@@ -404,13 +409,13 @@
                 showAlert('Convention chargée avec succès', 'success');
 
             } catch (error) {
-                console.error(error);
+                console.error("Error in loadConvention:", error);
                 showAlert('Erreur lors du chargement', 'error');
             }
         }
 
         async function saveChanges() {
-            if (!currentConventionId) {
+            if (currentConventionId === null || currentConventionId === undefined) {
                 showAlert('Aucune convention sélectionnée', 'error');
                 return;
             }
