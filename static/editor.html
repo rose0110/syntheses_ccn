@@ -357,11 +357,12 @@
                 }
 
                 listEl.innerHTML = conventions.map(conv => `
-                    <div class="convention-item" onclick="loadConvention(${conv.id})">
+                    <div class="convention-item" data-id="${conv.id}" onclick="loadConvention(${conv.id})">
                         <div class="name">${conv.id} - ${conv.name}</div>
                         <div class="meta">IDCC: ${conv.idcc || 'N/A'} | ${conv.status}</div>
                     </div>
                 `).join('');
+
 
             } catch (error) {
                 console.error(error);
@@ -374,11 +375,15 @@
             currentConventionId = id;
             document.getElementById('saveBtn').disabled = true;
 
-            // Highlight selected
+            // Highlight selected (utiliser data-id au lieu de event)
             document.querySelectorAll('.convention-item').forEach(item => {
                 item.classList.remove('active');
             });
-            event.target.closest('.convention-item').classList.add('active');
+
+            const selectedItem = document.querySelector(`.convention-item[data-id="${id}"]`);
+            if (selectedItem) {
+                selectedItem.classList.add('active');
+            }
 
             try {
                 const response = await fetch(`${API_BASE}/api/conventions/${id}`);
