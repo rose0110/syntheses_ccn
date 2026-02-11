@@ -6,9 +6,12 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from pydantic import BaseModel
 from datetime import datetime
+import logging
 import sys
 sys.path.append('..')
-from api.database import Convention, get_db, init_db
+from api.database import Convention, get_db, init_db, SessionLocal
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="CCN API",
@@ -324,6 +327,82 @@ async def clean_convention_html(
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error cleaning HTML: {str(e)}")
+
+
+@app.post("/api/conventions/clean-all")
+async def clean_all_conventions(
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db)
+):
+    """Nettoie le HTML de TOUTES les conventions (tâche en arrière-plan)"""
+    from bs4 import BeautifulSoup
+    
+    # Récupérer toutes les conventions avec raw_html
+    conventions = db.query(Convention).filter(Convention.raw_html.isnot(None)).all()
+    
+    if not conventions:
+        return {
+            "message": "No conventions with raw_html found",
+            "total": 0
+        }
+    
+    def clean_all_task():
+        db_task = SessionLocal()
+        cleaned_count = 0
+        error_count = 0
+        
+        try:
+            for conv in conventions:
+                try:
+                    if not conv.raw_html:
+                        continue
+                    
+                    soup = BeautifulSoup(conv.raw_html, 'html.parser')
+                    
+                    # Retirer scripts
+                    for script in soup.find_all('script'):
+                        script.decompose()
+                    
+                    # Retirer styles
+                    for style in soup.find_all('style'):
+                        style.decompose()
+                    
+                    # Retirer attributs indésirables
+                    unwanted_attrs = [
+                        'onclick', 'onload', 'onmouseover', 'onmouseout',
+                        'onfocus', 'onblur', 'onchange', 'onsubmit',
+                        'class', 'id', 'style'
+                    ]
+                    
+                    for tag in soup.find_all(True):
+                        for attr in unwanted_attrs:
+                            if attr in tag.attrs:
+                                del tag.attrs[attr]
+                    
+                    # Sauvegarder
+                    conv.raw_html = str(soup)
+                    conv.updated_at = datetime.utcnow()
+                    cleaned_count += 1
+                    
+                except Exception as e:
+                    logger.error(f"Error cleaning convention {conv.id}: {e}")
+                    error_count += 1
+            
+            db_task.commit()
+            logger.info(f"Cleaned {cleaned_count} conventions, {error_count} errors")
+        
+        finally:
+            db_task.close()
+    
+    # Lancer en arrière-plan
+    background_tasks.add_task(clean_all_task)
+    
+    return {
+        "message": "Cleaning started in background",
+        "total_conventions": len(conventions),
+        "status": "processing"
+    }
+
 
 
 
