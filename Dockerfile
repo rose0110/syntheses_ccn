@@ -34,7 +34,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
 COPY . .
 
 # Create necessary directories
-RUN mkdir -p logs data
+RUN mkdir -p logs data static
 
 # Expose API port
 EXPOSE 8000

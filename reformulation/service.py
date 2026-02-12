@@ -4,6 +4,7 @@ Service de reformulation utilisant 2 IA en parallèle (Gemini + DeepSeek)
 import os
 import json
 import time
+import asyncio
 import logging
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -205,18 +206,28 @@ class ReformulationService:
                 # Charger le prompt
                 prompt = self.load_prompt(section)
                 
-                # Appeler les 2 IA (séquentiellement pour l'instant)
-                gemini_result = await self.call_gemini(prompt, content)
-                time.sleep(API_DELAY)
+                # Appeler les 2 IA en PARALLÈLE
+                gemini_task = self.call_gemini(prompt, content)
+                deepseek_task = self.call_deepseek(prompt, content)
                 
-                deepseek_result = await self.call_deepseek(prompt, content)
-                time.sleep(API_DELAY)
+                results_list = await asyncio.gather(gemini_task, deepseek_task, return_exceptions=True)
                 
-                if gemini_result:
+                gemini_result, deepseek_result = results_list
+                
+                # Check Gemini result
+                if isinstance(gemini_result, Exception):
+                    logger.error(f"Gemini error for section {section}: {gemini_result}")
+                elif gemini_result:
                     results_gemini[section] = gemini_result
                 
-                if deepseek_result:
+                # Check DeepSeek result
+                if isinstance(deepseek_result, Exception):
+                    logger.error(f"DeepSeek error for section {section}: {deepseek_result}")
+                elif deepseek_result:
                     results_deepseek[section] = deepseek_result
+                
+                # Petit délai pour éviter rate limits même en parallèle
+                await asyncio.sleep(API_DELAY)
             
             except Exception as e:
                 logger.error(f"Error processing section {section}: {e}")

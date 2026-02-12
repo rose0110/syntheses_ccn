@@ -4,6 +4,7 @@ from sqlalchemy.orm import sessionmaker
 from datetime import datetime
 
 Base = declarative_base()
+BaseSynthese = declarative_base()
 
 
 class Convention(Base):
@@ -22,9 +23,10 @@ class Convention(Base):
     toc = Column(JSON, nullable=True)
     raw_html = Column(Text, nullable=True)
     
-    # Synthèses IA
-    synthese_gemini = Column(JSON, nullable=True)
-    synthese_deepseek = Column(JSON, nullable=True)
+    # Synthèses IA (supprimées ici, déplacées dans Synthese)
+    # synthese_gemini = Column(JSON, nullable=True)
+    # synthese_deepseek = Column(JSON, nullable=True)
+    # synthese_finale = Column(JSON, nullable=True)
     
     status = Column(String, default="pending")
     extracted_at = Column(DateTime, nullable=True)
@@ -48,30 +50,68 @@ class ConventionChange(Base):
     change_type = Column(String, default="content_modified")
     details = Column(JSON, nullable=True)
     processed = Column(Integer, default=0)
+    processed = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class Synthese(BaseSynthese):
+    __tablename__ = "syntheses"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    convention_id = Column(Integer, unique=True, index=True)
+    
+    # Stockage des synthèses brutes des modèles
+    synthese_gemini = Column(JSON, nullable=True)
+    synthese_deepseek = Column(JSON, nullable=True)
+    
+    # Synthèse consolidée/finale
+    synthese_finale = Column(JSON, nullable=True)
+    
+    # Métadonnées
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    status = Column(String, default="draft")  # draft, review, validated
 
 
 # Database setup
 import os
+import os
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./conventions.db")
+SYNTHESE_DB_URL = os.getenv("SYNTHESE_DB_URL", "sqlite:///./syntheses.db")
 
-# Configuration selon type de base
+# Configuration Bases de données
 if DATABASE_URL.startswith("postgresql"):
     engine = create_engine(DATABASE_URL)
 else:
     engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 
+if SYNTHESE_DB_URL.startswith("postgresql"):
+    engine_synthese = create_engine(SYNTHESE_DB_URL)
+else:
+    engine_synthese = create_engine(SYNTHESE_DB_URL, connect_args={"check_same_thread": False})
+
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+SessionSynthese = sessionmaker(autocommit=False, autoflush=False, bind=engine_synthese)
 
 
 def init_db():
-    """Initialize database"""
+    """Initialize databases"""
     Base.metadata.create_all(bind=engine)
+    BaseSynthese.metadata.create_all(bind=engine_synthese)
 
 
 def get_db():
-    """Get database session"""
+    """Get database session for conventions"""
     db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+def get_synthese_db():
+    """Get database session for syntheses"""
+    db = SessionSynthese()
     try:
         yield db
     finally:

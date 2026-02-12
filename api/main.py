@@ -9,7 +9,11 @@ from datetime import datetime
 import logging
 import sys
 sys.path.append('..')
-from api.database import Convention, get_db, init_db, SessionLocal
+from api.database import Convention, Synthese, get_db, init_db, SessionLocal, SessionSynthese
+from dotenv import load_dotenv
+import asyncio
+
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 
@@ -699,6 +703,17 @@ async def stop_extraction():
 # REFORMULATION (Gemini + DeepSeek)
 # ============================================================================
 
+# État de la reformulation (simple in-memory)
+reformulation_state = {
+    "running": False,
+    "current_convention": None,
+    "total": 0,
+    "processed": 0,
+    "errors": 0,
+    "started_at": None,
+    "last_log": []
+}
+
 @app.post("/api/conventions/{convention_id}/reformulate")
 async def reformulate_convention(
     convention_id: int,
@@ -722,15 +737,37 @@ async def reformulate_convention(
             results = await service.reformulate_convention(convention.raw_html)
             
             # Sauvegarder les résultats
-            db_task = SessionLocal()
-            conv = db_task.query(Convention).filter(Convention.id == convention_id).first()
-            
-            if conv:
-                conv.synthese_gemini = results["gemini"]
-                conv.synthese_deepseek = results["deepseek"]
-                conv.reformulated_at = datetime.utcnow()
+            db_task = SessionSynthese()
+            try:
+                # Vérifier si existe déjà
+                synthese = db_task.query(Synthese).filter(Synthese.convention_id == convention_id).first()
+                
+                if not synthese:
+                    synthese = Synthese(convention_id=convention_id)
+                    db_task.add(synthese)
+                
+                synthese.synthese_gemini = results["gemini"]
+                synthese.synthese_deepseek = results["deepseek"]
+                synthese.status = "done"  # ou autre statut intermédiaire
+                
                 db_task.commit()
+                
+                # Mettre à jour statut convention
+                db_conv = SessionLocal()
+                c = db_conv.query(Convention).filter(Convention.id == convention_id).first()
+                if c:
+                    c.reformulated_at = datetime.utcnow()
+                    c.status = "reformulated"
+                    db_conv.commit()
+                db_conv.close()
+                
                 logger.info(f"Convention {convention_id} reformulated successfully")
+                
+            except Exception as e:
+                db_task.rollback()
+                raise e
+            finally:
+                db_task.close()
         
         except Exception as e:
             logger.error(f"Error reformulating convention {convention_id}: {e}")
@@ -769,26 +806,63 @@ async def reformulate_conventions_range(
     async def reformulate_batch():
         from reformulation.service import ReformulationService
         
-        service = ReformulationService()
+        global reformulation_state
+        reformulation_state["running"] = True
+        reformulation_state["started_at"] = dt.utcnow()
+        reformulation_state["total"] = len(conventions)
+        reformulation_state["processed"] = 0
+        reformulation_state["errors"] = 0
+        reformulation_state["last_log"] = []
         
-        for conv in conventions:
-            try:
-                logger.info(f"Reformulating convention {conv.id}: {conv.name}")
-                results = await service.reformulate_convention(conv.raw_html)
-                
-                db_task = SessionLocal()
-                c = db_task.query(Convention).filter(Convention.id == conv.id).first()
-                
-                if c:
-                    c.synthese_gemini = results["gemini"]
-                    c.synthese_deepseek = results["deepseek"]
-                    c.reformulated_at = datetime.utcnow()
-                    db_task.commit()
-                
-                db_task.close()
+        try:
+            service = ReformulationService()
             
-            except Exception as e:
-                logger.error(f"Error reformulating convention {conv.id}: {e}")
+            for i, conv in enumerate(conventions):
+                reformulation_state["current_convention"] = f"{conv.id} - {conv.name}"
+                
+                try:
+                    logger.info(f"Reformulating convention {conv.id}: {conv.name}")
+                    reformulation_state["last_log"].append(f"Processing {conv.id}: {conv.name}")
+                    
+                    results = await service.reformulate_convention(conv.raw_html)
+                    
+                    # Sauvegarder synthèse
+                    db_task = SessionSynthese()
+                    try:
+                        synthese = db_task.query(Synthese).filter(Synthese.convention_id == conv.id).first()
+                        if not synthese:
+                            synthese = Synthese(convention_id=conv.id)
+                            db_task.add(synthese)
+                        
+                        synthese.synthese_gemini = results["gemini"]
+                        synthese.synthese_deepseek = results["deepseek"]
+                        synthese.status = "done"
+                        db_task.commit()
+                    finally:
+                        db_task.close()
+                    
+                    # Mettre à jour convention
+                    db_conv = SessionLocal()
+                    try:
+                        c = db_conv.query(Convention).filter(Convention.id == conv.id).first()
+                        if c:
+                            c.reformulated_at = datetime.utcnow()
+                            c.status = "reformulated"
+                            db_conv.commit()
+                    finally:
+                        db_conv.close()
+                    
+                    reformulation_state["processed"] += 1
+                    reformulation_state["last_log"].append(f"✓ Success {conv.id}")
+                
+                except Exception as e:
+                    logger.error(f"Error reformulating convention {conv.id}: {e}")
+                    reformulation_state["errors"] += 1
+                    reformulation_state["last_log"].append(f"✗ Error {conv.id}: {str(e)}")
+
+        finally:
+            reformulation_state["running"] = False
+            reformulation_state["current_convention"] = None
     
     if background_tasks:
         background_tasks.add_task(reformulate_batch)
@@ -801,10 +875,26 @@ async def reformulate_conventions_range(
     }
 
 
+@app.get("/api/reformulate/status")
+async def get_reformulation_status():
+    """Récupère le statut de la reformulation en cours"""
+    global reformulation_state
+    
+    return {
+        "running": reformulation_state["running"],
+        "current_convention": reformulation_state["current_convention"],
+        "total": reformulation_state["total"],
+        "processed": reformulation_state["processed"],
+        "errors": reformulation_state["errors"],
+        "started_at": reformulation_state["started_at"],
+        "progress_percent": round((reformulation_state["processed"] / reformulation_state["total"] * 100) if reformulation_state.get("total", 0) > 0 else 0, 1),
+        "last_logs": reformulation_state["last_log"][-10:]
+    }
+
 @app.get("/api/conventions/synthese-gemini/{convention_id}")
 async def get_synthese_gemini(
     convention_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db)  # On garde db pour vérifier existence convention
 ):
     """Récupère la synthèse Gemini d'une convention"""
     convention = db.query(Convention).filter(Convention.id == convention_id).first()
@@ -812,14 +902,18 @@ async def get_synthese_gemini(
     if not convention:
         raise HTTPException(status_code=404, detail="Convention not found")
     
-    if not convention.synthese_gemini:
+    db_synthese = SessionSynthese()
+    synthese = db_synthese.query(Synthese).filter(Synthese.convention_id == convention_id).first()
+    db_synthese.close()
+    
+    if not synthese or not synthese.synthese_gemini:
         raise HTTPException(status_code=404, detail="No Gemini synthesis found for this convention")
     
     return {
         "convention_id": convention_id,
         "convention_name": convention.name,
         "reformulated_at": convention.reformulated_at,
-        "synthese": convention.synthese_gemini
+        "synthese": synthese.synthese_gemini
     }
 
 
@@ -834,19 +928,23 @@ async def get_synthese_deepseek(
     if not convention:
         raise HTTPException(status_code=404, detail="Convention not found")
     
-    if not convention.synthese_deepseek:
+    db_synthese = SessionSynthese()
+    synthese = db_synthese.query(Synthese).filter(Synthese.convention_id == convention_id).first()
+    db_synthese.close()
+    
+    if not synthese or not synthese.synthese_deepseek:
         raise HTTPException(status_code=404, detail="No DeepSeek synthesis found for this convention")
     
     return {
         "convention_id": convention_id,
         "convention_name": convention.name,
         "reformulated_at": convention.reformulated_at,
-        "synthese": convention.synthese_deepseek
+        "synthese": synthese.synthese_deepseek
     }
 
 
 class SyntheseUpdate(BaseModel):
-    field: str  # "synthese_gemini" or "synthese_deepseek"
+    field: str  # "synthese_gemini", "synthese_deepseek", "synthese_finale"
     data: dict
 
 
@@ -856,26 +954,35 @@ async def update_synthese(
     update_data: SyntheseUpdate,
     db: Session = Depends(get_db)
 ):
-    """Met à jour une synthèse (Gemini ou DeepSeek)"""
+    """Met à jour une synthèse (Gemini, DeepSeek ou Finale)"""
     convention = db.query(Convention).filter(Convention.id == convention_id).first()
     
     if not convention:
         raise HTTPException(status_code=404, detail="Convention not found")
     
-    if update_data.field not in ["synthese_gemini", "synthese_deepseek"]:
+    if update_data.field not in ["synthese_gemini", "synthese_deepseek", "synthese_finale"]:
         raise HTTPException(status_code=400, detail="Invalid field name")
     
-    # Mettre à jour
-    setattr(convention, update_data.field, update_data.data)
-    convention.updated_at = datetime.utcnow()
-    db.commit()
-    db.refresh(convention)
-    
-    return {
-        "message": f"{update_data.field} updated successfully",
-        "convention_id": convention_id,
-        "updated_at": convention.updated_at
-    }
+    db_synthese = SessionSynthese()
+    try:
+        synthese = db_synthese.query(Synthese).filter(Synthese.convention_id == convention_id).first()
+        
+        if not synthese:
+            synthese = Synthese(convention_id=convention_id)
+            db_synthese.add(synthese)
+        
+        setattr(synthese, update_data.field, update_data.data)
+        synthese.updated_at = datetime.utcnow()
+        db_synthese.commit()
+        db_synthese.refresh(synthese)
+        
+        return {
+            "message": f"{update_data.field} updated successfully",
+            "convention_id": convention_id,
+            "updated_at": synthese.updated_at
+        }
+    finally:
+        db_synthese.close()
 
 
 
