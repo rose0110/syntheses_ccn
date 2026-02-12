@@ -845,6 +845,38 @@ async def get_synthese_deepseek(
     }
 
 
+class SyntheseUpdate(BaseModel):
+    field: str  # "synthese_gemini" or "synthese_deepseek"
+    data: dict
+
+
+@app.patch("/api/conventions/{convention_id}/update-synthese")
+async def update_synthese(
+    convention_id: int,
+    update_data: SyntheseUpdate,
+    db: Session = Depends(get_db)
+):
+    """Met à jour une synthèse (Gemini ou DeepSeek)"""
+    convention = db.query(Convention).filter(Convention.id == convention_id).first()
+    
+    if not convention:
+        raise HTTPException(status_code=404, detail="Convention not found")
+    
+    if update_data.field not in ["synthese_gemini", "synthese_deepseek"]:
+        raise HTTPException(status_code=400, detail="Invalid field name")
+    
+    # Mettre à jour
+    setattr(convention, update_data.field, update_data.data)
+    convention.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(convention)
+    
+    return {
+        "message": f"{update_data.field} updated successfully",
+        "convention_id": convention_id,
+        "updated_at": convention.updated_at
+    }
+
 
 
 if __name__ == "__main__":
