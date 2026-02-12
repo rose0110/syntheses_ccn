@@ -695,6 +695,158 @@ async def stop_extraction():
     }
 
 
+# ============================================================================
+# REFORMULATION (Gemini + DeepSeek)
+# ============================================================================
+
+@app.post("/api/conventions/{convention_id}/reformulate")
+async def reformulate_convention(
+    convention_id: int,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db)
+):
+    """Reformule une convention avec Gemini + DeepSeek en parallèle"""
+    convention = db.query(Convention).filter(Convention.id == convention_id).first()
+    
+    if not convention:
+        raise HTTPException(status_code=404, detail="Convention not found")
+    
+    if not convention.raw_html:
+        raise HTTPException(status_code=400, detail="Convention has no raw_html to reformulate")
+    
+    async def reformulate_task():
+        from reformulation.service import ReformulationService
+        
+        try:
+            service = ReformulationService()
+            results = await service.reformulate_convention(convention.raw_html)
+            
+            # Sauvegarder les résultats
+            db_task = SessionLocal()
+            conv = db_task.query(Convention).filter(Convention.id == convention_id).first()
+            
+            if conv:
+                conv.synthese_gemini = results["gemini"]
+                conv.synthese_deepseek = results["deepseek"]
+                conv.reformulated_at = datetime.utcnow()
+                db_task.commit()
+                logger.info(f"Convention {convention_id} reformulated successfully")
+        
+        except Exception as e:
+            logger.error(f"Error reformulating convention {convention_id}: {e}")
+        
+        finally:
+            db_task.close()
+    
+    background_tasks.add_task(reformulate_task)
+    
+    return {
+        "message": "Reformulation started in background",
+        "convention_id": convention_id
+    }
+
+
+@app.post("/api/conventions/reformulate")
+async def reformulate_conventions_range(
+    start: int = Query(0, ge=0),
+    end: int = Query(10, ge=1),
+    background_tasks: BackgroundTasks = None,
+    db: Session = Depends(get_db)
+):
+    """Reformule une plage de conventions"""
+    conventions = db.query(Convention).filter(
+        Convention.id >= start,
+        Convention.id < end,
+        Convention.raw_html.isnot(None)
+    ).all()
+    
+    if not conventions:
+        return {
+            "message": "No conventions with raw_html found in this range",
+            "count": 0
+        }
+    
+    async def reformulate_batch():
+        from reformulation.service import ReformulationService
+        
+        service = ReformulationService()
+        
+        for conv in conventions:
+            try:
+                logger.info(f"Reformulating convention {conv.id}: {conv.name}")
+                results = await service.reformulate_convention(conv.raw_html)
+                
+                db_task = SessionLocal()
+                c = db_task.query(Convention).filter(Convention.id == conv.id).first()
+                
+                if c:
+                    c.synthese_gemini = results["gemini"]
+                    c.synthese_deepseek = results["deepseek"]
+                    c.reformulated_at = datetime.utcnow()
+                    db_task.commit()
+                
+                db_task.close()
+            
+            except Exception as e:
+                logger.error(f"Error reformulating convention {conv.id}: {e}")
+    
+    if background_tasks:
+        background_tasks.add_task(reformulate_batch)
+    
+    return {
+        "message": "Reformulation started in background",
+        "conventions_count": len(conventions),
+        "start": start,
+        "end": end
+    }
+
+
+@app.get("/api/conventions/synthese-gemini/{convention_id}")
+async def get_synthese_gemini(
+    convention_id: int,
+    db: Session = Depends(get_db)
+):
+    """Récupère la synthèse Gemini d'une convention"""
+    convention = db.query(Convention).filter(Convention.id == convention_id).first()
+    
+    if not convention:
+        raise HTTPException(status_code=404, detail="Convention not found")
+    
+    if not convention.synthese_gemini:
+        raise HTTPException(status_code=404, detail="No Gemini synthesis found for this convention")
+    
+    return {
+        "convention_id": convention_id,
+        "convention_name": convention.name,
+        "reformulated_at": convention.reformulated_at,
+        "synthese": convention.synthese_gemini
+    }
+
+
+@app.get("/api/conventions/synthese-deepseek/{convention_id}")
+async def get_synthese_deepseek(
+    convention_id: int,
+    db: Session = Depends(get_db)
+):
+    """Récupère la synthèse DeepSeek d'une convention"""
+    convention = db.query(Convention).filter(Convention.id == convention_id).first()
+    
+    if not convention:
+        raise HTTPException(status_code=404, detail="Convention not found")
+    
+    if not convention.synthese_deepseek:
+        raise HTTPException(status_code=404, detail="No DeepSeek synthesis found for this convention")
+    
+    return {
+        "convention_id": convention_id,
+        "convention_name": convention.name,
+        "reformulated_at": convention.reformulated_at,
+        "synthese": convention.synthese_deepseek
+    }
+
+
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

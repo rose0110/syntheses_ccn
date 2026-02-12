@@ -21,6 +21,11 @@ class Convention(Base):
     sections = Column(JSON)
     toc = Column(JSON, nullable=True)
     raw_html = Column(Text, nullable=True)
+    
+    # Synthèses IA
+    synthese_gemini = Column(JSON, nullable=True)
+    synthese_deepseek = Column(JSON, nullable=True)
+    
     status = Column(String, default="pending")
     extracted_at = Column(DateTime, nullable=True)
     reformulated_at = Column(DateTime, nullable=True)
@@ -29,6 +34,7 @@ class Convention(Base):
     last_modified = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
 
 
 class ConventionChange(Base):
