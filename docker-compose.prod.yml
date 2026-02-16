@@ -10,8 +10,10 @@ services:
       - "8000:8000"
     volumes:
       - ./conventions.db:/app/conventions.db
+      - ./syntheses.db:/app/syntheses.db
       - ./logs:/app/logs
       - ./.env:/app/.env
+      - .:/app
     environment:
       - PYTHONUNBUFFERED=1
       - TZ=Europe/Paris
