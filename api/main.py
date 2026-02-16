@@ -707,6 +707,9 @@ async def stop_extraction():
 reformulation_state = {
     "running": False,
     "current_convention": None,
+    "current_section": None,
+    "total_sections": 0,
+    "section_progress": 0,
     "total": 0,
     "processed": 0,
     "errors": 0,
@@ -813,18 +816,27 @@ async def reformulate_conventions_range(
         reformulation_state["processed"] = 0
         reformulation_state["errors"] = 0
         reformulation_state["last_log"] = []
+        reformulation_state["current_section"] = None
+        reformulation_state["section_progress"] = 0
         
+        # Callback pour mise à jour status
+        def update_status(section_name, current, total):
+            reformulation_state["current_section"] = section_name
+            reformulation_state["section_progress"] = current
+            reformulation_state["total_sections"] = total
+            
         try:
             service = ReformulationService()
             
             for i, conv in enumerate(conventions):
                 reformulation_state["current_convention"] = f"{conv.id} - {conv.name}"
+                reformulation_state["section_progress"] = 0
                 
                 try:
                     logger.info(f"Reformulating convention {conv.id}: {conv.name}")
                     reformulation_state["last_log"].append(f"Processing {conv.id}: {conv.name}")
                     
-                    results = await service.reformulate_convention(conv.raw_html)
+                    results = await service.reformulate_convention(conv.raw_html, status_callback=update_status)
                     
                     # Sauvegarder synthèse
                     db_task = SessionSynthese()
@@ -883,6 +895,8 @@ async def get_reformulation_status():
     return {
         "running": reformulation_state["running"],
         "current_convention": reformulation_state["current_convention"],
+        "current_section": reformulation_state["current_section"],
+        "section_progress": f"{reformulation_state.get('section_progress', 0)}/{reformulation_state.get('total_sections', 0)}",
         "total": reformulation_state["total"],
         "processed": reformulation_state["processed"],
         "errors": reformulation_state["errors"],
@@ -890,6 +904,43 @@ async def get_reformulation_status():
         "progress_percent": round((reformulation_state["processed"] / reformulation_state["total"] * 100) if reformulation_state.get("total", 0) > 0 else 0, 1),
         "last_logs": reformulation_state["last_log"][-10:]
     }
+
+@app.get("/api/reformulate/list")
+async def list_reformulated_conventions(
+    skip: int = 0,
+    limit: int = 100,
+    db: Session = Depends(get_db)
+):
+    """Liste les conventions qui ont été reformulées"""
+    
+    # Récupérer les conventions marquées comme reformulées
+    conventions = db.query(Convention).filter(
+        Convention.status == "reformulated"
+    ).offset(skip).limit(limit).all()
+    
+    results = []
+    
+    # Pour chaque convention, vérifier si on a une synthèse et sa date
+    db_synthese = SessionSynthese()
+    try:
+        for conv in conventions:
+            synthese = db_synthese.query(Synthese).filter(Synthese.convention_id == conv.id).first()
+            
+            results.append({
+                "id": conv.id,
+                "idcc": conv.idcc,
+                "name": conv.name,
+                "reformulated_at": conv.reformulated_at,
+                "has_gemini": bool(synthese and synthese.synthese_gemini),
+                "has_deepseek": bool(synthese and synthese.synthese_deepseek),
+                "has_final": bool(synthese and synthese.synthese_finale),
+                "synthese_updated_at": synthese.updated_at if synthese else None
+            })
+    finally:
+        db_synthese.close()
+            
+    return results
+
 
 @app.get("/api/conventions/synthese-gemini/{convention_id}")
 async def get_synthese_gemini(

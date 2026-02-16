@@ -9,8 +9,9 @@ import logging
 from pathlib import Path
 from typing import Dict, List, Optional
 from bs4 import BeautifulSoup
-from google import generativeai as genai
+import re
 import httpx
+from google import generativeai as genai
 
 logger = logging.getLogger(__name__)
 
@@ -64,15 +65,58 @@ Tu es un assistant spécialisé dans l'extraction et la restructuration de donn�
 
 ## ⚠️ RÈGLE ABSOLUE : NE RIEN OMETTRE
 
-Tu ne dois **JAMAIS** omettre d'informations présentes dans le texte source. Ton rôle est de **réorganiser** et **reformuler** pour plus de clarté, pas de résumer ou synthétiser.
+La source fournie est **déjà une synthèse**. Ton rôle n'est PAS d'analyser, trier ou sélectionner.
 
-## 📋 FORMAT DE SORTIE
+### Tu dois :
+- ✅ **TOUT prendre** — chaque information, chaque nuance, chaque cas particulier
+- ✅ **Réorganiser** dans la structure JSON demandée
+- ✅ **Reformuler** si nécessaire pour clarifier
+- ✅ **Conserver** toutes les valeurs, tous les seuils, toutes les conditions
 
+### Tu ne dois PAS :
+- ❌ Décider qu'une information est "moins importante"
+- ❌ Résumer ou simplifier des règles complexes
+- ❌ Omettre des cas particuliers, régionaux ou catégoriels
+- ❌ Fusionner des tranches ou des seuils différents
+- ❌ Appliquer le Code du travail si la convention est muette
+- ❌ Inventer des informations qui ne sont pas dans la source
+
+**Si c'est dans la source, c'est dans le JSON. Point final.**
+
+## � FORMAT DE SORTIE
+
+### OBLIGATOIRE :
 - Réponds **uniquement** avec un objet JSON valide
 - **Aucun texte** avant le JSON
 - **Aucun texte** après le JSON
 - **Aucun bloc markdown** (pas de ```json```)
 - Juste l'objet JSON brut
+
+## 📊 TABLEAUX vs LISTES
+
+### Format tableau :
+```json
+"tableau": {
+  "colonnes": ["En-tête 1", "En-tête 2"],
+  "lignes": [
+    ["Valeur 1a", "Valeur 1b"],
+    ["Valeur 2a *", "Valeur 2b"]
+  ]
+}
+```
+
+## ✳️ SYSTÈME D'ASTÉRISQUES
+
+Pour les cas particuliers dans les tableaux :
+- Dans la cellule : `"2 mois *"` ou `"3 mois **"`
+- Dans précisions : `"* Explication..."`, `"** Autre explication..."`
+
+## ⚠️ VALEURS NULLES
+
+- Information absente de la source → `null`
+- Catégorie sans élément → `[]`
+- Bloc non applicable → `"applicable": false`
+- Section non traitée par la CC → `"statut": "non_traite"`
 """.strip()
 
 
@@ -91,28 +135,30 @@ class ReformulationService:
         # Init Gemini
         genai.configure(api_key=self.gemini_api_key)
         self.gemini_model = genai.GenerativeModel(
-            "gemini-2.0-flash-exp",
+            "gemini-2.5-flash",
             generation_config={"temperature": TEMPERATURE}
         )
         
         logger.info("ReformulationService initialized")
     
     def clean_html(self, raw_html: str) -> str:
-        """Nettoie le HTML et extrait le texte"""
+        """Nettoie le HTML (logique identique script original)"""
         if not raw_html:
             return ""
         
-        try:
-            soup = BeautifulSoup(raw_html, 'html.parser')
-            
-            # Retirer scripts, styles
-            for tag in soup(['script', 'style']):
-                tag.decompose()
-            
-            return soup.get_text(separator='\n', strip=True)
-        except Exception as e:
-            logger.error(f"Error cleaning HTML: {e}")
-            return raw_html
+        cleaned = raw_html
+        cleaned = re.sub(r'<script[^>]*>.*?</script>', '', cleaned, flags=re.DOTALL)
+        cleaned = re.sub(r'try\s*\{[^}]*\$\([^}]*\}[^}]*\}[^}]*catch\s*\([^)]*\)\s*\{\s*\}', '', cleaned, flags=re.DOTALL)
+        cleaned = re.sub(r'<!--.*?-->', '', cleaned, flags=re.DOTALL)
+        cleaned = re.sub(r'\s+(style|width|height|valign|align|border|cellpadding|cellspacing|id|name|src|alt|title)="[^"]*"', '', cleaned)
+        cleaned = re.sub(r'\s+(ng-[a-z-]+|data-[a-z-]+|on\w+)="[^"]*"', '', cleaned)
+        cleaned = re.sub(r'<table[^>]*class="contactredac-table"[^>]*>.*?</table>', '', cleaned, flags=re.DOTALL)
+        cleaned = re.sub(r'<img[^>]*/?>', '', cleaned)
+        cleaned = re.sub(r'<a[^>]*>\s*</a>', '', cleaned)
+        cleaned = re.sub(r'\n\s*\n+', '\n', cleaned)
+        cleaned = re.sub(r'  +', ' ', cleaned)
+        
+        return cleaned.strip()
     
     def load_prompt(self, section: str) -> str:
         """Charge le prompt d'une section"""
@@ -180,7 +226,7 @@ class ReformulationService:
             logger.error(f"DeepSeek API error: {e}")
             return None
     
-    async def reformulate_convention(self, raw_html: str) -> Dict[str, Dict]:
+    async def reformulate_convention(self, raw_html: str, status_callback=None) -> Dict[str, Dict]:
         """
         Reformule une convention avec les 2 IA en parallèle
         
@@ -199,8 +245,12 @@ class ReformulationService:
         results_deepseek = {}
         
         # Pour chaque section
-        for section in SECTIONS:
+        total_sections = len(SECTIONS)
+        for i, section in enumerate(SECTIONS):
             logger.info(f"Processing section: {section}")
+            
+            if status_callback:
+                status_callback(section, i + 1, total_sections)
             
             try:
                 # Charger le prompt
