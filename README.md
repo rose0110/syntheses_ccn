@@ -152,15 +152,53 @@ docker-compose -f docker-compose.postgres.yml run --rm extractor python extract_
 
 ### Déploiement VPS
 
-```bash
-git clone <repo> /opt/syntheses_ccn
-cd /opt/syntheses_ccn
-cp .env.example .env && nano .env
-./deploy.sh
+1. **Installation**
+   ```bash
+   git clone <repo> /opt/syntheses_ccn
+   cd /opt/syntheses_ccn
+   cp .env.example .env
+   nano .env # Configurer ELNET_USERNAME, ELNET_PASSWORD, etc.
+   ```
 
-# Extraction hebdomadaire (cron)
-crontab -e
-# 0 2 * * 0 cd /opt/syntheses_ccn && docker-compose -f docker-compose.prod.yml --profile extraction run --rm extractor
+2. **Lancement de l'API**
+   ```bash
+   # Lancer le service API (en mode détaché)
+   docker-compose -f docker-compose.vps.yml up -d --remove-orphans
+   ```
+
+3. **Initialisation de la Base de Données**
+   Cette étape crée les tables et importe la liste des conventions.
+   ```bash
+   docker-compose -f docker-compose.vps.yml --profile init up db-init
+   ```
+
+4. **Lancement de l'Extraction**
+   ```bash
+   # Lancer l'extraction complète en arrière-plan
+   docker-compose -f docker-compose.vps.yml --profile extraction up -d extractor
+
+   # Ou tester sur quelques conventions (ex: les 5 premières)
+   docker-compose -f docker-compose.vps.yml run --rm extractor python extract_all_to_db.py --start 0 --end 5
+   ```
+
+5. **Mise à jour du code (Déploiement Continu)**
+   Grâce au montage dynamique du volume, pas besoin de reconstruire l'image Docker à chaque changement.
+   ```bash
+   # 1. Récupérer le dernier code
+   git pull
+
+   # 2. Redémarrer l'API pour prendre en compte les changements Python
+   docker-compose -f docker-compose.vps.yml restart api
+   ```
+
+### Troubleshooting VPS
+
+**Erreur "unable to open database file"**
+Si Docker a créé `conventions.db` ou `syntheses.db` comme des dossiers au lieu de fichiers :
+```bash
+docker-compose -f docker-compose.vps.yml down
+rm -rf conventions.db syntheses.db
+docker-compose -f docker-compose.vps.yml up -d
 ```
 
 ## Configuration
