@@ -70,7 +70,7 @@ class ConventionDetail(BaseModel):
     header_table_html: Optional[str] = ""
     preamble_html: Optional[str] = ""
     toc: List[dict] = []
-    sections: List[dict] = []
+    sections: List[dict] = []  # dict avec keys: sequence, is_preamble, title, html, text
     raw_html: Optional[str] = ""
     status: str
 

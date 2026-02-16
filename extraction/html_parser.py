@@ -90,9 +90,22 @@ class ConventionParser:
                         if is_preamble:
                             result["preamble_html"] = html_content
                         
+                        # Tentative d'extraction du titre depuis le contenu
+                        title = "Section sans titre"
+                        soup_content = BeautifulSoup(html_content, 'html.parser')
+                        
+                        # Chercher les classes de titre habituelles sur ELNET
+                        title_tag = soup_content.find(['div', 'p', 'h1', 'h2', 'h3'], class_=re.compile(r'A[0-9]-TITRE'))
+                        if not title_tag:
+                            title_tag = soup_content.find(['h1', 'h2', 'h3'])
+                        
+                        if title_tag:
+                            title = title_tag.get_text(strip=True)
+
                         result["sections"].append({
                             "sequence": int(seq),
                             "is_preamble": is_preamble,
+                            "title": title,
                             "html": html_content,
                             "text": text_preview,
                         })
