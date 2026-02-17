@@ -1,25 +1,19 @@
-"""
-Service de reformulation utilisant 2 IA en parallèle (Gemini + DeepSeek)
-"""
 import os
 import json
-import time
 import asyncio
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional
-from bs4 import BeautifulSoup
+from typing import Dict, Optional
 import re
 import httpx
 from google import generativeai as genai
 
 logger = logging.getLogger(__name__)
 
-# Configuration
 BASE_DIR = Path(__file__).parent
 PROMPTS_DIR = BASE_DIR / "prompts_section"
-TEMPERATURE = 0.1
-API_DELAY = 0.5
+TEMP = 0.1
+DELAY = 0.5
 
 # Liste des 34 sections
 SECTIONS = [
@@ -120,26 +114,21 @@ Pour les cas particuliers dans les tableaux :
 """.strip()
 
 
+
 class ReformulationService:
-    """Service pour reformuler les conventions avec 2 IA en parallèle"""
-    
     def __init__(self):
-        self.gemini_api_key = os.getenv("GEMINI_API_KEY")
-        self.deepseek_api_key = os.getenv("DEEPSEEK_API_KEY")
+        self.gem_key = os.getenv("GEMINI_API_KEY")
+        self.ds_key = os.getenv("DEEPSEEK_API_KEY")
         
-        if not self.gemini_api_key:
-            raise ValueError("GEMINI_API_KEY not found in environment")
-        if not self.deepseek_api_key:
-            raise ValueError("DEEPSEEK_API_KEY not found in environment")
+        if not self.gem_key or not self.ds_key:
+            raise ValueError("Missing API keys")
         
-        # Init Gemini
-        genai.configure(api_key=self.gemini_api_key)
-        self.gemini_model = genai.GenerativeModel(
+        genai.configure(api_key=self.gem_key)
+        self.gem_model = genai.GenerativeModel(
             "gemini-2.5-flash",
-            generation_config={"temperature": TEMPERATURE}
+            generation_config={"temperature": TEMP}
         )
-        
-        logger.info("ReformulationService initialized")
+
     
     def clean_html(self, raw_html: str) -> str:
         """Nettoie le HTML (logique identique script original)"""
@@ -161,129 +150,88 @@ class ReformulationService:
         return cleaned.strip()
     
     def load_prompt(self, section: str) -> str:
-        """Charge le prompt d'une section"""
-        prompt_file = PROMPTS_DIR / f"{section}.md"
-        
-        if not prompt_file.exists():
-            raise FileNotFoundError(f"Prompt file not found: {prompt_file}")
-        
-        return prompt_file.read_text(encoding='utf-8')
+        p_file = PROMPTS_DIR / f"{section}.md"
+        if not p_file.exists():
+            raise FileNotFoundError(f"No prompt for {section}")
+        return p_file.read_text(encoding='utf-8')
     
     async def call_gemini(self, prompt: str, content: str) -> Optional[Dict]:
-        """Appelle Gemini AI"""
         try:
-            full_prompt = f"{SYSTEM_PROMPT}\n\n{prompt}\n\n## CONTENU À ANALYSER\n\n{content}"
+            full = f"{SYSTEM_PROMPT}\n\n{prompt}\n\n## CONTENU\n\n{content}"
+            resp = self.gem_model.generate_content(full)
+            txt = resp.text.strip()
             
-            response = self.gemini_model.generate_content(full_prompt)
-            response_text = response.text.strip()
+            if txt.startswith("```"):
+                txt = txt.split("```json")[1].split("```")[0].strip()
             
-            # Retirer markdown si présent
-            if response_text.startswith("```"):
-                response_text = response_text.split("```json")[1].split("```")[0].strip()
-            
-            return json.loads(response_text)
-        
+            return json.loads(txt)
         except Exception as e:
-            logger.error(f"Gemini API error: {e}")
+            logger.error(f"Gemini error: {e}")
             return None
     
     async def call_deepseek(self, prompt: str, content: str) -> Optional[Dict]:
-        """Appelle DeepSeek AI"""
         try:
-            full_prompt = f"{SYSTEM_PROMPT}\n\n{prompt}\n\n## CONTENU À ANALYSER\n\n{content}"
-            
             async with httpx.AsyncClient(timeout=60.0) as client:
-                response = await client.post(
+                resp = await client.post(
                     "https://api.deepseek.com/v1/chat/completions",
                     headers={
-                        "Authorization": f"Bearer {self.deepseek_api_key}",
+                        "Authorization": f"Bearer {self.ds_key}",
                         "Content-Type": "application/json"
                     },
                     json={
                         "model": "deepseek-chat",
                         "messages": [
                             {"role": "system", "content": SYSTEM_PROMPT},
-                            {"role": "user", "content": f"{prompt}\n\n## CONTENU À ANALYSER\n\n{content}"}
+                            {"role": "user", "content": f"{prompt}\n\n## DO IT: \n\n{content}"}
                         ],
-                        "temperature": TEMPERATURE
+                        "temperature": TEMP
                     }
                 )
                 
-                if response.status_code != 200:
-                    logger.error(f"DeepSeek API error: {response.status_code} - {response.text}")
+                if resp.status_code != 200:
+                    logger.error(f"DS Error: {resp.status_code}")
                     return None
                 
-                result = response.json()
-                response_text = result['choices'][0]['message']['content'].strip()
+                txt = resp.json()['choices'][0]['message']['content'].strip()
+                if txt.startswith("```"):
+                    txt = txt.split("```json")[1].split("```")[0].strip()
                 
-                # Retirer markdown si présent
-                if response_text.startswith("```"):
-                    response_text = response_text.split("```json")[1].split("```")[0].strip()
-                
-                return json.loads(response_text)
-        
+                return json.loads(txt)
         except Exception as e:
-            logger.error(f"DeepSeek API error: {e}")
+            logger.error(f"DS Exception: {e}")
             return None
     
-    async def reformulate_convention(self, raw_html: str, status_callback=None) -> Dict[str, Dict]:
-        """
-        Reformule une convention avec les 2 IA en parallèle
-        
-        Returns:
-            {
-                "gemini": {...},
-                "deepseek": {...}
-            }
-        """
+    async def reformulate_convention(self, raw_html: str, status_cb=None) -> Dict[str, Dict]:
         content = self.clean_html(raw_html)
-        
         if not content:
-            raise ValueError("No content to reformulate")
+            raise ValueError("Empty content")
         
-        results_gemini = {}
-        results_deepseek = {}
+        res_gem, res_ds = {}, {}
         
-        # Pour chaque section
-        total_sections = len(SECTIONS)
         for i, section in enumerate(SECTIONS):
-            logger.info(f"Processing section: {section}")
-            
-            if status_callback:
-                status_callback(section, i + 1, total_sections)
+            logger.info(f">> {section}")
+            if status_cb: status_cb(section, i + 1, len(SECTIONS))
             
             try:
-                # Charger le prompt
                 prompt = self.load_prompt(section)
                 
-                # Appeler les 2 IA en PARALLÈLE
-                gemini_task = self.call_gemini(prompt, content)
-                deepseek_task = self.call_deepseek(prompt, content)
+                # Parallel execution
+                task_g = self.call_gemini(prompt, content)
+                task_d = self.call_deepseek(prompt, content)
                 
-                results_list = await asyncio.gather(gemini_task, deepseek_task, return_exceptions=True)
+                results = await asyncio.gather(task_g, task_d, return_exceptions=True)
+                rg, rd = results
                 
-                gemini_result, deepseek_result = results_list
+                if not isinstance(rg, Exception) and rg:
+                    res_gem[section] = rg
                 
-                # Check Gemini result
-                if isinstance(gemini_result, Exception):
-                    logger.error(f"Gemini error for section {section}: {gemini_result}")
-                elif gemini_result:
-                    results_gemini[section] = gemini_result
+                if not isinstance(rd, Exception) and rd:
+                    res_ds[section] = rd
                 
-                # Check DeepSeek result
-                if isinstance(deepseek_result, Exception):
-                    logger.error(f"DeepSeek error for section {section}: {deepseek_result}")
-                elif deepseek_result:
-                    results_deepseek[section] = deepseek_result
-                
-                # Petit délai pour éviter rate limits même en parallèle
-                await asyncio.sleep(API_DELAY)
-            
+                await asyncio.sleep(DELAY)
+
             except Exception as e:
-                logger.error(f"Error processing section {section}: {e}")
+                logger.error(f"Fail {section}: {e}")
                 continue
         
-        return {
-            "gemini": results_gemini,
-            "deepseek": results_deepseek
-        }
+        return {"gemini": res_gem, "deepseek": res_ds}

@@ -113,36 +113,36 @@ async def list_conventions(
     return conventions
 
 
-@app.get("/api/conventions/{convention_id}", response_model=ConventionDetail)
-async def get_convention(convention_id: int, db: Session = Depends(get_db)):
-    """Récupère une convention par son ID au format standard"""
-    convention = db.query(Convention).filter(Convention.id == convention_id).first()
+@app.get("/api/conventions/{id}", response_model=ConventionDetail)
+async def get_convention(id: int, db: Session = Depends(get_db)):
+    # Récupération standard par ID
+    conv = db.query(Convention).filter(Convention.id == id).first()
     
-    if not convention:
-        raise HTTPException(status_code=404, detail="Convention not found")
+    if not conv:
+        raise HTTPException(status_code=404, detail="Not found")
     
-    # Construire la réponse au format attendu
+    # Mapping vers le modèle de sortie
     return {
         "metadata": {
-            "name": convention.name,
-            "url": convention.url,
-            "pdf_url": convention.pdf_url,
-            "extraction_date": convention.extracted_at.isoformat() if convention.extracted_at else None,
-            "idcc": convention.idcc,
-            "brochure": convention.brochure,
-            "signature_date": convention.signature_date,
-            "extension_date": convention.extension_date,
-            "jo_date": convention.jo_date,
-            "revision_date": "",        # TODO: Ajouter au modèle DB si nécessaire
-            "revision_extension": "",   # TODO: Ajouter au modèle DB si nécessaire 
-            "revision_jo": ""           # TODO: Ajouter au modèle DB si nécessaire
+            "name": conv.name,
+            "url": conv.url,
+            "pdf_url": conv.pdf_url,
+            "extraction_date": conv.extracted_at.isoformat() if conv.extracted_at else None,
+            "idcc": conv.idcc,
+            "brochure": conv.brochure,
+            "signature_date": conv.signature_date,
+            "extension_date": conv.extension_date,
+            "jo_date": conv.jo_date,
+            "revision_date": "",
+            "revision_extension": "",
+            "revision_jo": ""
         },
-        "header_table_html": "",  # Non stocké en DB pour l'instant
-        "preamble_html": "",      # Extrait des sections si nécessaire
-        "toc": convention.toc or [],
-        "sections": convention.sections or [],
-        "raw_html": convention.raw_html or "",           # Maintenu en DB désormais
-        "status": convention.status
+        "header_table_html": "",
+        "preamble_html": "",
+        "toc": conv.toc or [],
+        "sections": conv.sections or [],
+        "raw_html": conv.raw_html or "",
+        "status": conv.status
     }
 
 
@@ -717,20 +717,20 @@ reformulation_state = {
     "last_log": []
 }
 
-@app.post("/api/conventions/{convention_id}/reformulate")
+@app.post("/api/conventions/{id}/reformulate")
 async def reformulate_convention(
-    convention_id: int,
+    id: int,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
 ):
-    """Reformule une convention avec Gemini + DeepSeek en parallèle"""
-    convention = db.query(Convention).filter(Convention.id == convention_id).first()
+    # Lance le processus de reformulation en background
+    conv = db.query(Convention).filter(Convention.id == id).first()
     
-    if not convention:
-        raise HTTPException(status_code=404, detail="Convention not found")
+    if not conv:
+        raise HTTPException(status_code=404, detail="Not found")
     
-    if not convention.raw_html:
-        raise HTTPException(status_code=400, detail="Convention has no raw_html to reformulate")
+    if not conv.raw_html:
+        raise HTTPException(status_code=400, detail="No source HTML")
     
     async def reformulate_task():
         from reformulation.service import ReformulationService

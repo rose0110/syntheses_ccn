@@ -27,90 +27,79 @@ class ConventionExtractor:
             logger.error(f"Invalid JSON in {file_path}: {e}")
             return []
     
-    def generate_pdf_url(self, convention_url: str) -> Optional[str]:
-        """Génère le lien PDF à partir du lien de la convention (logique script user)"""
+    def generate_pdf_url(self, url: str) -> Optional[str]:
+        # Logique reverse-engineering pour trouver URL PDF
         import re
-        match = re.search(r'[?&]id=([A-Z0-9]+)', convention_url, re.IGNORECASE)
-        if match:
-            doc_id = match.group(1).upper()
-            doc_id_lower = doc_id.lower()
-            return f"https://www.elnet.fr/documentation/hulkStatic/EL/CD15/ETD/{doc_id}/sharp_/ANX/{doc_id_lower}.pdf"
+        m = re.search(r'[?&]id=([A-Z0-9]+)', url, re.IGNORECASE)
+        if m:
+            id_u = m.group(1).upper()
+            return f"https://www.elnet.fr/documentation/hulkStatic/EL/CD15/ETD/{id_u}/sharp_/ANX/{id_u.lower()}.pdf"
         return None
 
-    def extract_convention(self, convention_id: int, convention_info: Dict) -> Optional[Dict]:
-        url = convention_info.get("url")
-        
+    def extract_convention(self, id: int, info: Dict) -> Optional[Dict]:
+        url = info.get("url")
         if not url:
-            logger.warning(f"No URL for convention {convention_id}")
+            logger.warning(f"Skipping {id}: No URL")
             return None
         
-        logger.info(f"Extracting convention {convention_id}: {convention_info.get('name', 'Unknown')}")
+        logger.info(f"Processing [{id}] {info.get('name', '???')}")
         
         html = self.connector.get_page(url)
-        
         if not html:
-            logger.error(f"Failed to retrieve page for convention {convention_id}")
+            logger.error(f"Failed to load page {id}")
             return None
         
-        # Générer PDF URL dynamiquement si manquant
-        pdf_url = convention_info.get("pdf_url")
-        if not pdf_url and url:
-            pdf_url = self.generate_pdf_url(url)
+        # Fallback pour le PDF si non présent
+        pdf = info.get("pdf_url") or self.generate_pdf_url(url)
 
-        metadata = {
-            "name": convention_info.get("name", ""),
-            "idcc": convention_info.get("idcc"),
-            "brochure": convention_info.get("brochure"),
+        meta = {
+            "name": info.get("name", ""),
+            "idcc": info.get("idcc"),
+            "brochure": info.get("brochure"),
             "url": url,
-            "pdf_url": pdf_url,
-            "signature_date": convention_info.get("signature_date"),
-            "extension_date": convention_info.get("extension_date"),
-            "jo_date": convention_info.get("jo_date")
+            "pdf_url": pdf,
+            "signature_date": info.get("signature_date"),
+            "extension_date": info.get("extension_date"),
+            "jo_date": info.get("jo_date")
         }
         
-        result = self.parser.parse_convention_page(html, convention_id, metadata)
-        return result
+        return self.parser.parse_convention_page(html, id, meta)
     
-    def extract_batch(self, conventions: List[Dict], output_dir: str):
+    def extract_batch(self, conv_list: List[Dict], out_dir: str):
         self.connector.setup_driver()
         
         if not self.connector.login():
-            logger.error("Login failed, aborting extraction")
+            logger.error("Login failed. Check env vars.")
             self.connector.close()
             return
         
-        results = []
-        output_path = Path(output_dir)
-        output_path.mkdir(parents=True, exist_ok=True)
+        res_list = []
+        path = Path(out_dir)
+        path.mkdir(parents=True, exist_ok=True)
         
-        for i, conv in enumerate(conventions):
-            conv_id = conv.get("id", i)
+        for i, c in enumerate(conv_list):
+            cid = c.get("id", i)
+            res = self.extract_convention(cid, c)
             
-            result = self.extract_convention(conv_id, conv)
-            
-            if result:
-                results.append(result)
+            if res:
+                res_list.append(res)
                 
-                # Save individual file
-                file_name = f"convention_{conv_id}.json"
-                file_path = output_path / file_name
-                
+                # Dump JSON direct
+                fpath = path / f"convention_{cid}.json"
                 try:
-                    with open(file_path, 'w', encoding='utf-8') as f:
-                        json.dump(result, f, ensure_ascii=False, indent=2)
-                    logger.info(f"Saved {file_name}")
-                except IOError as e:
-                    logger.error(f"Failed to save {file_name}: {e}")
+                    with open(fpath, 'w', encoding='utf-8') as f:
+                        json.dump(res, f, ensure_ascii=False, indent=2)
+                except Exception as e:
+                    logger.error(f"Save error {cid}: {e}")
             
-            # Small delay between requests
-            if i < len(conventions) - 1:
+            # Anti-ban delay
+            if i < len(conv_list) - 1:
                 import time
                 time.sleep(1)
         
         self.connector.close()
-        
-        logger.info(f"Extraction complete: {len(results)}/{len(conventions)} conventions")
-        return results
+        logger.info(f"Done: {len(res_list)}/{len(conv_list)} OK")
+        return res_list
     
     def extract_single(self, convention_id: int, conventions_list_path: str, output_dir: str):
         conventions = self.load_conventions_list(conventions_list_path)
