@@ -7,8 +7,7 @@ Doc Swagger : http://127.0.0.1:8000/docs
 
 import os
 import json
-from fastapi import FastAPI, Depends, HTTPException, Query, Security
-from fastapi.security.api_key import APIKeyHeader
+from fastapi import FastAPI, Depends, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_
@@ -23,17 +22,7 @@ from database import engine, get_db
 
 # Charger les variables d'environnement
 load_dotenv()
-API_KEY = os.getenv("API_KEY", "no-key-set")
-API_KEY_NAME = "X-API-Key"
-api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=True)
 
-async def get_api_key(api_key_header: str = Security(api_key_header)):
-    if api_key_header != API_KEY:
-        raise HTTPException(
-            status_code=403,
-            detail="Clé API invalide"
-        )
-    return api_key_header
 
 # Créer les tables si elles n'existent pas
 models.Base.metadata.create_all(bind=engine)
@@ -172,7 +161,7 @@ def root():
     }
 
 
-@app.get("/conventions/", response_model=List[ConventionSummaryOut], tags=["Conventions"], dependencies=[Depends(get_api_key)])
+@app.get("/conventions/", response_model=List[ConventionSummaryOut], tags=["Conventions"])
 def list_conventions(
     offset: int = Query(0, ge=0, description="Offset pour la pagination"),
     limit: int = Query(500, ge=1, le=2000, description="Nombre max de résultats"),
@@ -200,7 +189,7 @@ def list_conventions(
 # ROUTES IDCC SPÉCIFIQUES (déclarées AVANT {identifier} pour la priorité)
 # ──────────────────────────────────────────────────────────────
 
-@app.get("/conventions/idcc/{idcc}", response_model=ConventionDetailOut, tags=["Conventions IDCC"], dependencies=[Depends(get_api_key)])
+@app.get("/conventions/idcc/{idcc}", response_model=ConventionDetailOut, tags=["Conventions IDCC"])
 def get_by_idcc(
     idcc: str, 
     full: bool = Query(False, description="Inclure le HTML brut des sections"),
@@ -213,7 +202,7 @@ def get_by_idcc(
     return _build_convention_detail(conv, db, include_html=full)
 
 
-@app.get("/conventions/idcc/{idcc}/toc", response_model=List[TocEntryOut], tags=["Conventions IDCC"], dependencies=[Depends(get_api_key)])
+@app.get("/conventions/idcc/{idcc}/toc", response_model=List[TocEntryOut], tags=["Conventions IDCC"])
 def get_toc_by_idcc(idcc: str, db: Session = Depends(get_db)):
     """Retourne le sommaire d'une convention par son IDCC."""
     conv = db.query(models.Convention).filter(models.Convention.idcc == idcc).first()
@@ -225,7 +214,7 @@ def get_toc_by_idcc(idcc: str, db: Session = Depends(get_db)):
     return [TocEntryOut(id=t.entry_id, sgml_id=t.sgml_id, title=t.title) for t in toc]
 
 
-@app.get("/conventions/idcc/{idcc}/sections", response_model=List[SectionOut], tags=["Conventions IDCC"], dependencies=[Depends(get_api_key)])
+@app.get("/conventions/idcc/{idcc}/sections", response_model=List[SectionOut], tags=["Conventions IDCC"])
 def get_sections_by_idcc(
     idcc: str,
     keyword: Optional[str] = Query(None, description="Filtrer les sections par mot-clé"),
@@ -241,7 +230,7 @@ def get_sections_by_idcc(
     return query.order_by(models.Section.sequence).all()
 
 
-@app.get("/conventions/idcc/{idcc}/metadata", response_model=MetadataOut, tags=["Conventions IDCC"], dependencies=[Depends(get_api_key)])
+@app.get("/conventions/idcc/{idcc}/metadata", response_model=MetadataOut, tags=["Conventions IDCC"])
 def get_metadata_by_idcc(idcc: str, db: Session = Depends(get_db)):
     """Retourne les métadonnées d'une convention par son IDCC."""
     conv = db.query(models.Convention).filter(models.Convention.idcc == idcc).first()
@@ -250,7 +239,7 @@ def get_metadata_by_idcc(idcc: str, db: Session = Depends(get_db)):
     return MetadataOut.model_validate(conv)
 
 
-@app.get("/conventions/file/{filename}", response_model=ConventionDetailOut, tags=["Conventions"], dependencies=[Depends(get_api_key)])
+@app.get("/conventions/file/{filename}", response_model=ConventionDetailOut, tags=["Conventions"])
 def get_by_filename(
     filename: str,
     full: bool = Query(False, description="Inclure le HTML brut des sections"),
@@ -268,7 +257,7 @@ def get_by_filename(
 # ROUTES FLEXIBLES (identifier = IDCC ou Elnet ID)
 # ──────────────────────────────────────────────────────────────
 
-@app.get("/conventions/{identifier}", response_model=ConventionDetailOut, tags=["Conventions"], dependencies=[Depends(get_api_key)])
+@app.get("/conventions/{identifier}", response_model=ConventionDetailOut, tags=["Conventions"])
 def get_convention(
     identifier: str, 
     full: bool = Query(False, description="Inclure le HTML brut des sections"),
@@ -282,7 +271,7 @@ def get_convention(
     return _build_convention_detail(conv, db, include_html=full)
 
 
-@app.get("/conventions/{identifier}/toc", response_model=List[TocEntryOut], tags=["Conventions"], dependencies=[Depends(get_api_key)])
+@app.get("/conventions/{identifier}/toc", response_model=List[TocEntryOut], tags=["Conventions"])
 def get_toc(identifier: str, db: Session = Depends(get_db)):
     """Retourne le sommaire d'une convention (IDCC ou ID Elnet)."""
     conv = get_convention_by_any_id_or_404(identifier, db)
@@ -292,7 +281,7 @@ def get_toc(identifier: str, db: Session = Depends(get_db)):
     return [TocEntryOut(id=t.entry_id, sgml_id=t.sgml_id, title=t.title) for t in toc]
 
 
-@app.get("/conventions/{identifier}/sections", response_model=List[SectionOut], tags=["Conventions"], dependencies=[Depends(get_api_key)])
+@app.get("/conventions/{identifier}/sections", response_model=List[SectionOut], tags=["Conventions"])
 def get_sections(
     identifier: str,
     keyword: Optional[str] = Query(None, description="Filtrer les sections par mot-clé"),
@@ -306,14 +295,14 @@ def get_sections(
     return query.order_by(models.Section.sequence).all()
 
 
-@app.get("/conventions/{identifier}/metadata", response_model=MetadataOut, tags=["Conventions"], dependencies=[Depends(get_api_key)])
+@app.get("/conventions/{identifier}/metadata", response_model=MetadataOut, tags=["Conventions"])
 def get_metadata(identifier: str, db: Session = Depends(get_db)):
     """Retourne uniquement les métadonnées d'une convention (IDCC ou ID Elnet)."""
     conv = get_convention_by_any_id_or_404(identifier, db)
     return MetadataOut.model_validate(conv)
 
 
-@app.get("/search/", tags=["Recherche"], dependencies=[Depends(get_api_key)])
+@app.get("/search/", tags=["Recherche"])
 def search_conventions(
     q: str = Query(..., min_length=1, description="Terme de recherche (nom ou IDCC)"),
     limit: int = Query(50, ge=1, le=200),
@@ -341,7 +330,7 @@ def search_conventions(
     ]
 
 
-@app.get("/search/section", tags=["Recherche"], dependencies=[Depends(get_api_key)])
+@app.get("/search/section", tags=["Recherche"])
 def search_in_sections(
     keyword: str = Query(..., min_length=2, description="Mot-clé à chercher dans les sections"),
     limit: int = Query(100, ge=1, le=500),
@@ -368,7 +357,7 @@ def search_in_sections(
     ]
 
 
-@app.get("/stats", response_model=StatsOut, tags=["General"], dependencies=[Depends(get_api_key)])
+@app.get("/stats", response_model=StatsOut, tags=["General"])
 def get_stats(db: Session = Depends(get_db)):
     """Retourne les statistiques globales des données."""
     total_conventions = db.query(func.count(models.Convention.id)).scalar()
@@ -393,19 +382,19 @@ def get_stats(db: Session = Depends(get_db)):
     )
 
 
-@app.post("/sync", tags=["Administration"], dependencies=[Depends(get_api_key)])
+@app.post("/sync", tags=["Administration"])
 def sync_data():
     """Synchronise les données (MOCK)."""
     return {"message": "Synchronisation démarrée", "status": "success"}
 
 
-@app.post("/reload", tags=["Administration"], dependencies=[Depends(get_api_key)])
+@app.post("/reload", tags=["Administration"])
 def reload_data():
     """Recharge les données (MOCK)."""
     return {"message": "Rechargement des données terminé", "status": "success"}
 
 
-@app.get("/list", tags=["General"], dependencies=[Depends(get_api_key)])
+@app.get("/list", tags=["General"])
 def get_conventions_list():
     """Retourne la liste brute des conventions (depuis conventions_list.json)."""
     list_path = "conventions_list.json"
