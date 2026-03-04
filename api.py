@@ -162,9 +162,9 @@ def get_convention_by_any_id_or_404(identifier: str, db: Session) -> models.Conv
 # ROUTES
 # ──────────────────────────────────────────────────────────────
 
-@app.get("/", tags=["General"], dependencies=[Depends(get_api_key)])
+@app.get("/", tags=["General"])  # Public — pour le healthcheck et l'accueil
 def root():
-    """Page d'accueil de l'API."""
+    """Page d'accueil de l'API (publique)."""
     return {
         "message": "SDP Conventions API — Elnet Edition",
         "version": "1.0.1",
