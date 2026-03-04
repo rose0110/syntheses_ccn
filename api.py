@@ -105,6 +105,15 @@ class ConventionSummaryOut(BaseModel):
         from_attributes = True
 
 
+class SectionsListOut(BaseModel):
+    """Wrapper pour la liste des sections — correspond au format SDP API."""
+    name: str
+    idcc: Optional[str]
+    keyword: Optional[str] = None
+    count: int
+    sections: List[SectionOut]
+
+
 class ConventionDetailOut(BaseModel):
     metadata: MetadataOut
     toc: List[TocEntryOut] = []
@@ -214,7 +223,7 @@ def get_toc_by_idcc(idcc: str, db: Session = Depends(get_db)):
     return [TocEntryOut(id=t.entry_id, sgml_id=t.sgml_id, title=t.title) for t in toc]
 
 
-@app.get("/conventions/idcc/{idcc}/sections", response_model=List[SectionOut], tags=["Conventions IDCC"])
+@app.get("/conventions/idcc/{idcc}/sections", response_model=SectionsListOut, tags=["Conventions IDCC"])
 def get_sections_by_idcc(
     idcc: str,
     keyword: Optional[str] = Query(None, description="Filtrer les sections par mot-clé"),
@@ -227,7 +236,16 @@ def get_sections_by_idcc(
     query = db.query(models.Section).filter(models.Section.convention_id == conv.id)
     if keyword:
         query = query.filter(models.Section.text.ilike(f"%{keyword}%"))
-    return query.order_by(models.Section.sequence).all()
+    sections = query.order_by(models.Section.sequence).all()
+    # Retirer html du résultat (comme le remote SDP API)
+    sections_out = [SectionOut(sequence=s.sequence, is_preamble=s.is_preamble, text=s.text) for s in sections]
+    return SectionsListOut(
+        name=conv.name,
+        idcc=conv.idcc,
+        keyword=keyword,
+        count=len(sections_out),
+        sections=sections_out,
+    )
 
 
 @app.get("/conventions/idcc/{idcc}/metadata", response_model=MetadataOut, tags=["Conventions IDCC"])
@@ -281,7 +299,7 @@ def get_toc(identifier: str, db: Session = Depends(get_db)):
     return [TocEntryOut(id=t.entry_id, sgml_id=t.sgml_id, title=t.title) for t in toc]
 
 
-@app.get("/conventions/{identifier}/sections", response_model=List[SectionOut], tags=["Conventions"])
+@app.get("/conventions/{identifier}/sections", response_model=SectionsListOut, tags=["Conventions"])
 def get_sections(
     identifier: str,
     keyword: Optional[str] = Query(None, description="Filtrer les sections par mot-clé"),
@@ -292,7 +310,15 @@ def get_sections(
     query = db.query(models.Section).filter(models.Section.convention_id == conv.id)
     if keyword:
         query = query.filter(models.Section.text.ilike(f"%{keyword}%"))
-    return query.order_by(models.Section.sequence).all()
+    sections = query.order_by(models.Section.sequence).all()
+    sections_out = [SectionOut(sequence=s.sequence, is_preamble=s.is_preamble, text=s.text) for s in sections]
+    return SectionsListOut(
+        name=conv.name,
+        idcc=conv.idcc,
+        keyword=keyword,
+        count=len(sections_out),
+        sections=sections_out,
+    )
 
 
 @app.get("/conventions/{identifier}/metadata", response_model=MetadataOut, tags=["Conventions"])
