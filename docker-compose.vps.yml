@@ -1,0 +1,141 @@
+# ============================================================
+# docker-compose.vps.yml — Déploiement Production (VPS)
+# ============================================================
+#
+# WORKFLOW GIT (tout-en-un) :
+#   1. (Local) python export_db.py       → génère database.sql
+#   2. (Local) git add database.sql && git push
+#   3. (VPS)   git pull
+#   4. (VPS)   mkdir -p data
+#   5. (VPS)   docker compose -f docker-compose.vps.yml up -d --build
+#              → L'entrypoint restaure automatiquement elnet.db depuis database.sql
+#              → L'API démarre avec toutes tes données !
+#
+# Autres commandes VPS :
+#   Arrêter :            docker compose -f docker-compose.vps.yml down
+#   Logs API :           docker compose -f docker-compose.vps.yml logs -f api
+#   Lancer le scraper :  docker compose -f docker-compose.vps.yml --profile scraping run --rm scraper
+#   Importer en BDD :    docker compose -f docker-compose.vps.yml --profile import run --rm importer
+# ============================================================
+
+services:
+
+  # ──────────────────────────────────────────────────────────
+  # NGINX — Reverse proxy + SSL (Let's Encrypt via Certbot)
+  # ──────────────────────────────────────────────────────────
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: elnet-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - certbot-www:/var/www/certbot:ro
+      - certbot-certs:/etc/letsencrypt:ro
+    depends_on:
+      - api
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"
+
+  # ──────────────────────────────────────────────────────────
+  # CERTBOT — Renouvellement automatique des certificats SSL
+  # ──────────────────────────────────────────────────────────
+  certbot:
+    image: certbot/certbot:latest
+    container_name: elnet-certbot
+    volumes:
+      - certbot-www:/var/www/certbot
+      - certbot-certs:/etc/letsencrypt
+    entrypoint: /bin/sh -c "trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot --quiet; sleep 12h & wait $${!}; done"
+
+  # ──────────────────────────────────────────────────────────
+  # API FastAPI — Production
+  # L'entrypoint restaure elnet.db depuis database.sql si absent
+  # ──────────────────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      target: api
+    container_name: elnet-api
+    restart: unless-stopped
+    expose:
+      - "8000"
+    volumes:
+      - ./data:/app/data # Dossier persistant → elnet.db sera créé ici au 1er boot
+      - ./output:/app/output
+      - ./conventions_list.json:/app/conventions_list.json:ro
+    environment:
+      - DATABASE_URL=sqlite:////app/data/elnet.db
+      - API_KEY=${API_KEY}
+      - ELNET_USERNAME=${ELNET_USERNAME}
+      - ELNET_PASSWORD=${ELNET_PASSWORD}
+    env_file:
+      - .env
+    command: uvicorn api:app --host 0.0.0.0 --port 8000 --workers 2
+    healthcheck:
+      test: [ "CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/')\" 2>&1 || exit 1" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  # ──────────────────────────────────────────────────────────
+  # SCRAPER — Tâche ponctuelle
+  # ──────────────────────────────────────────────────────────
+  scraper:
+    build:
+      context: .
+      target: scraper
+    container_name: elnet-scraper
+    profiles: [ "scraping" ]
+    volumes:
+      - ./data:/app/data
+      - ./output:/app/output
+      - ./conventions_list.json:/app/conventions_list.json:ro
+    environment:
+      - DATABASE_URL=sqlite:////app/data/elnet.db
+      - ELNET_USERNAME=${ELNET_USERNAME}
+      - ELNET_PASSWORD=${ELNET_PASSWORD}
+      - API_KEY=${API_KEY}
+    env_file:
+      - .env
+    command: python main.py --all
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  # ──────────────────────────────────────────────────────────
+  # IMPORTER — Import JSON → SQLite
+  # ──────────────────────────────────────────────────────────
+  importer:
+    build:
+      context: .
+      target: api
+    container_name: elnet-importer
+    profiles: [ "import" ]
+    volumes:
+      - ./data:/app/data
+      - ./output:/app/output
+    environment:
+      - DATABASE_URL=sqlite:////app/data/elnet.db
+    env_file:
+      - .env
+    command: python import_to_db.py --generate-integrales
+
+volumes:
+  certbot-www:
+    driver: local
+  certbot-certs:
+    driver: local

@@ -1,0 +1,15 @@
+Dockerfile
+docker-compose.yml
+.dockerignore
+.env
+.git
+__pycache__
+*.pyc
+*.pyo
+*.log
+*.db
+debug_*.png
+scraper.log
+.agents
+.gemini
+*.md

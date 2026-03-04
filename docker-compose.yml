@@ -1,0 +1,92 @@
+# ============================================================
+# Docker Compose — SDP Conventions API (VPS Production)
+# ============================================================
+# Usage :
+#   Démarrer l'API :     docker compose up -d api
+#   Lancer le scraper :  docker compose run --rm scraper
+#   Importer en BDD :    docker compose run --rm scraper python import_to_db.py --generate-integrales
+#   Tout reconstruire :  docker compose build --no-cache
+# ============================================================
+
+services:
+
+  # ──────────────────────────────────────────────────────────
+  # API FastAPI (production)
+  # ──────────────────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      target: api # Utilise le stage léger (sans Chromium)
+    container_name: elnet-api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - db-data:/app/data # Volume persistant pour la BDD
+      - ./output:/app/output # Fichiers JSON scraped (partagé avec scraper)
+      - ./conventions_list.json:/app/conventions_list.json:ro
+    environment:
+      - DATABASE_URL=sqlite:////app/data/elnet.db
+      - API_KEY=${API_KEY}
+    env_file:
+      - .env
+    healthcheck:
+      test: [ "CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/', headers={'X-API-Key': '${API_KEY}'}, timeout=5)" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ──────────────────────────────────────────────────────────
+  # Scraper Selenium (tâche ponctuelle)
+  # ──────────────────────────────────────────────────────────
+  scraper:
+    build:
+      context: .
+      target: scraper # Stage avec Chromium
+    container_name: elnet-scraper
+    profiles: [ "scraping" ] # Ne démarre PAS avec `docker compose up`
+    volumes:
+      - db-data:/app/data
+      - ./output:/app/output
+      - ./conventions_list.json:/app/conventions_list.json:ro
+    environment:
+      - DATABASE_URL=sqlite:////app/data/elnet.db
+      - ELNET_USERNAME=${ELNET_USERNAME}
+      - ELNET_PASSWORD=${ELNET_PASSWORD}
+      - API_KEY=${API_KEY}
+    env_file:
+      - .env
+    command: python main.py --all
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  # ──────────────────────────────────────────────────────────
+  # Import BDD (tâche ponctuelle)
+  # ──────────────────────────────────────────────────────────
+  importer:
+    build:
+      context: .
+      target: api # Pas besoin de Chromium pour importer
+    container_name: elnet-importer
+    profiles: [ "import" ] # Ne démarre PAS avec `docker compose up`
+    volumes:
+      - db-data:/app/data
+      - ./output:/app/output
+    environment:
+      - DATABASE_URL=sqlite:////app/data/elnet.db
+    env_file:
+      - .env
+    command: python import_to_db.py --generate-integrales
+
+volumes:
+  db-data:
+    driver: local

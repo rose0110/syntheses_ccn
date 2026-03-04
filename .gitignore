@@ -1,0 +1,38 @@
+# Base de données SQLite (trop lourde pour git → utiliser database.sql.gz)
+*.db
+*.db-shm
+*.db-wal
+/data/
+database.sql          # Dump brut (106MB) — trop lourd, utiliser .gz
+# database.sql.gz     ← VERSIONNÉE dans git (11MB compressé, OK ✅)
+
+# Exports debug Selenium
+debug_*.png
+
+# Logs
+*.log
+scraper.log
+
+# Fichiers sensibles
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+venv/
+dist/
+build/
+
+# Fichiers temporaires / IDE
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.vscode/
+.idea/
+
+# Docker (pas besoin de versionner la config docker elle-même)
+# docker-compose.yml est conservé pour le dev local
