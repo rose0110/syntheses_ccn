@@ -2,60 +2,25 @@
 # docker-compose.vps.yml — Déploiement Production (VPS)
 # ============================================================
 #
-# WORKFLOW GIT (tout-en-un) :
-#   1. (Local) python export_db.py       → génère database.sql
-#   2. (Local) git add database.sql && git push
-#   3. (VPS)   git pull
-#   4. (VPS)   mkdir -p data
-#   5. (VPS)   docker compose -f docker-compose.vps.yml up -d --build
-#              → L'entrypoint restaure automatiquement elnet.db depuis database.sql
-#              → L'API démarre avec toutes tes données !
+# WORKFLOW :
+#   1. (Local)  python export_db.py && git add database.sql.gz && git push
+#   2. (VPS)    git pull && mkdir -p data output
+#   3. (VPS)    docker-compose -f docker-compose.vps.yml up -d --build
 #
-# Autres commandes VPS :
-#   Arrêter :            docker compose -f docker-compose.vps.yml down
-#   Logs API :           docker compose -f docker-compose.vps.yml logs -f api
-#   Lancer le scraper :  docker compose -f docker-compose.vps.yml --profile scraping run --rm scraper
-#   Importer en BDD :    docker compose -f docker-compose.vps.yml --profile import run --rm importer
+# L'entrypoint restaure elnet.db depuis database.sql.gz au 1er démarrage.
+# Le nginx SYSTÈME du VPS redirige le trafic vers le port 8000.
+#
+# Optionnel — Lancer avec nginx Docker (si pas de nginx système) :
+#   docker-compose -f docker-compose.vps.yml --profile nginx up -d --build
+#
+# Scraper :  docker-compose -f docker-compose.vps.yml --profile scraping run --rm scraper
+# Importer : docker-compose -f docker-compose.vps.yml --profile import run --rm importer
 # ============================================================
 
 services:
 
   # ──────────────────────────────────────────────────────────
-  # NGINX — Reverse proxy + SSL (Let's Encrypt via Certbot)
-  # ──────────────────────────────────────────────────────────
-  nginx:
-    image: nginx:1.25-alpine
-    container_name: elnet-nginx
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx/conf.d:/etc/nginx/conf.d:ro
-      - certbot-www:/var/www/certbot:ro
-      - certbot-certs:/etc/letsencrypt:ro
-    depends_on:
-      - api
-    logging:
-      driver: json-file
-      options:
-        max-size: "5m"
-        max-file: "3"
-
-  # ──────────────────────────────────────────────────────────
-  # CERTBOT — Renouvellement automatique des certificats SSL
-  # ──────────────────────────────────────────────────────────
-  certbot:
-    image: certbot/certbot:latest
-    container_name: elnet-certbot
-    volumes:
-      - certbot-www:/var/www/certbot
-      - certbot-certs:/etc/letsencrypt
-    entrypoint: /bin/sh -c "trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot --quiet; sleep 12h & wait $${!}; done"
-
-  # ──────────────────────────────────────────────────────────
-  # API FastAPI — Production
-  # L'entrypoint restaure elnet.db depuis database.sql si absent
+  # API FastAPI — Production (port 8000, géré par nginx système)
   # ──────────────────────────────────────────────────────────
   api:
     build:
@@ -63,10 +28,10 @@ services:
       target: api
     container_name: elnet-api
     restart: unless-stopped
-    expose:
-      - "8000"
+    ports:
+      - "8000:8000" # Le nginx système forward vers ce port
     volumes:
-      - ./data:/app/data # Dossier persistant → elnet.db sera créé ici au 1er boot
+      - ./data:/app/data # elnet.db restauré ici au 1er boot
       - ./output:/app/output
       - ./conventions_list.json:/app/conventions_list.json:ro
     environment:
@@ -90,6 +55,39 @@ services:
         max-file: "5"
 
   # ──────────────────────────────────────────────────────────
+  # NGINX Docker (OPTIONNEL — seulement si pas de nginx système)
+  # docker-compose ... --profile nginx up -d
+  # ──────────────────────────────────────────────────────────
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: elnet-nginx
+    restart: unless-stopped
+    profiles: [ "nginx" ] # Désactivé par défaut
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - certbot-www:/var/www/certbot:ro
+      - certbot-certs:/etc/letsencrypt:ro
+    depends_on:
+      - api
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"
+
+  certbot:
+    image: certbot/certbot:latest
+    container_name: elnet-certbot
+    profiles: [ "nginx" ] # Désactivé par défaut
+    volumes:
+      - certbot-www:/var/www/certbot
+      - certbot-certs:/etc/letsencrypt
+    entrypoint: /bin/sh -c "trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot --quiet; sleep 12h & wait $${!}; done"
+
+  # ──────────────────────────────────────────────────────────
   # SCRAPER — Tâche ponctuelle
   # ──────────────────────────────────────────────────────────
   scraper:
@@ -110,11 +108,6 @@ services:
     env_file:
       - .env
     command: python main.py --all
-    logging:
-      driver: json-file
-      options:
-        max-size: "20m"
-        max-file: "5"
 
   # ──────────────────────────────────────────────────────────
   # IMPORTER — Import JSON → SQLite
